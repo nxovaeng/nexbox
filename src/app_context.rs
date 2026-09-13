@@ -10,6 +10,7 @@ use crate::lan_share::LanDoor;
 use crate::proton::Proton;
 use crate::psiphon::Psiphon;
 use crate::tor::Tor;
+use crate::windscribe::Windscribe;
 
 #[derive(Clone)]
 pub struct AppContext {
@@ -18,6 +19,7 @@ pub struct AppContext {
     pub psiphon: Arc<Psiphon>,
     pub tor: Arc<Tor>,
     pub proton: Arc<Proton>,
+    pub windscribe: Arc<Windscribe>,
     pub lan_door: Arc<LanDoor>,
     
     pub config_dir: PathBuf,
@@ -71,4 +73,5 @@ impl AppContext {
     pub fn psiphon(&self) -> Arc<Psiphon> { self.psiphon.clone() }
     pub fn tor(&self) -> Arc<Tor> { self.tor.clone() }
     pub fn proton(&self) -> Arc<Proton> { self.proton.clone() }
+    pub fn windscribe(&self) -> Arc<Windscribe> { self.windscribe.clone() }
 }

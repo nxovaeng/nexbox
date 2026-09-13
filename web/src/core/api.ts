@@ -13,9 +13,25 @@ import type {
   ProtonInfo,
   ProtonSettings,
   ProtonServerSummary,
+  WindscribeStatusResponse,
+  WindscribeAccount,
+  WindscribeSettings,
+  WindscribeServer,
+  WindscribeSnapshot,
 } from "../types";
 
-export type { PsiphonInfo, RoutingRulesInfo, ProtonInfo, ProtonSettings, ProtonServerSummary };
+export type {
+  PsiphonInfo,
+  RoutingRulesInfo,
+  ProtonInfo,
+  ProtonSettings,
+  ProtonServerSummary,
+  WindscribeStatusResponse,
+  WindscribeAccount,
+  WindscribeSettings,
+  WindscribeServer,
+  WindscribeSnapshot,
+};
 
 // Same-origin: frontend is embedded in the Rust binary, served from the same port
 export const API_BASE = "/api";
@@ -600,5 +616,58 @@ export async function startProton(payload?: {
 
 export async function stopProton(): Promise<{ success: boolean }> {
   return apiInvoke("stop_proton");
+}
+
+// ── Windscribe API ──────────────────────────────────────────────────────────
+
+export async function getWindscribeStatus(): Promise<WindscribeStatusResponse> {
+  const res = await fetch(`${API_BASE}/windscribe_status`);
+  if (!res.ok) throw new Error("Failed to fetch Windscribe status");
+  return res.json();
+}
+
+export async function loginWindscribe(payload: {
+  username: string;
+  password: string;
+  upstreamProxy?: string;
+}): Promise<{ success: boolean; account?: WindscribeAccount; error?: string }> {
+  return apiInvoke("windscribe_login", payload);
+}
+
+export async function registerWindscribe(payload: {
+  email?: string;
+  upstreamProxy?: string;
+}): Promise<{ success: boolean; account?: WindscribeAccount; error?: string }> {
+  return apiInvoke("windscribe_register", payload);
+}
+
+export async function refreshWindscribe(payload?: {
+  upstreamProxy?: string;
+}): Promise<{ success: boolean; account?: WindscribeAccount; error?: string }> {
+  return apiInvoke("windscribe_refresh", payload || {});
+}
+
+export async function saveWindscribeConfig(payload: {
+  listenAddress?: string;
+  listenPort?: number;
+  country?: string;
+  serverTag?: string;
+  upstreamProxy?: string;
+  autoFailover?: boolean;
+}): Promise<{ success: boolean; error?: string }> {
+  return apiInvoke("save_windscribe_config", payload);
+}
+
+export async function startWindscribe(payload?: {
+  country?: string;
+  serverTag?: string;
+  listenAddress?: string;
+  listenPort?: number;
+}): Promise<{ success: boolean; address?: string; error?: string }> {
+  return apiInvoke("start_windscribe", payload || {});
+}
+
+export async function stopWindscribe(): Promise<{ success: boolean; error?: string }> {
+  return apiInvoke("stop_windscribe");
 }
 

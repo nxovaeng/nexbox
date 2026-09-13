@@ -733,6 +733,228 @@ async fn handle_proton_servers(
     Json(servers)
 }
 
+// ── Windscribe handlers ──────────────────────────────────────────────────
+
+async fn handle_windscribe_status(State(ctx): State<AppContext>) -> impl IntoResponse {
+    let snap = ctx.windscribe().snapshot().await;
+    let settings = crate::windscribe::load_standalone_settings(&ctx);
+    Json(json!({
+        "snapshot": snap,
+        "settings": settings,
+    }))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WindscribeLoginPayload {
+    username: String,
+    password: String,
+    upstream_proxy: Option<String>,
+}
+
+async fn handle_windscribe_login(
+    State(ctx): State<AppContext>,
+    Json(payload): Json<WindscribeLoginPayload>,
+) -> impl IntoResponse {
+    let proxy = payload.upstream_proxy.as_deref();
+    match crate::windscribe::login_existing_account(&payload.username, &payload.password, proxy).await {
+        Ok(acc) => {
+            if let Err(e) = ctx.windscribe().save_account(&ctx, &acc).await {
+                return Json(json!({ "success": false, "error": e }));
+            }
+            if let Ok(servers) = crate::windscribe::fetch_server_list(&acc.loc_hash, proxy).await {
+                let _ = ctx.windscribe().save_servers(&ctx, &servers).await;
+            }
+            if let Some(p) = proxy {
+                if !p.trim().is_empty() {
+                    let mut settings = crate::windscribe::load_standalone_settings(&ctx);
+                    settings.upstream_proxy = Some(p.trim().to_string());
+                    let _ = crate::windscribe::save_standalone_settings(&ctx, &settings);
+                }
+            }
+            Json(json!({ "success": true, "account": acc }))
+        }
+        Err(e) => {
+            eprintln!("[Windscribe API Error] login failed: {e}");
+            ctx.supervisor().record("windscribe", "warn", format!("Login failed: {e}"));
+            Json(json!({ "success": false, "error": e }))
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WindscribeRegisterPayload {
+    email: Option<String>,
+    upstream_proxy: Option<String>,
+}
+
+async fn handle_windscribe_register(
+    State(ctx): State<AppContext>,
+    Json(payload): Json<WindscribeRegisterPayload>,
+) -> impl IntoResponse {
+    let proxy = payload.upstream_proxy.as_deref();
+    let email = payload.email.as_deref();
+    match crate::windscribe::register_new_account(email, proxy).await {
+        Ok(acc) => {
+            if let Err(e) = ctx.windscribe().save_account(&ctx, &acc).await {
+                return Json(json!({ "success": false, "error": e }));
+            }
+            if let Ok(servers) = crate::windscribe::fetch_server_list(&acc.loc_hash, proxy).await {
+                let _ = ctx.windscribe().save_servers(&ctx, &servers).await;
+            }
+            if let Some(p) = proxy {
+                if !p.trim().is_empty() {
+                    let mut settings = crate::windscribe::load_standalone_settings(&ctx);
+                    settings.upstream_proxy = Some(p.trim().to_string());
+                    let _ = crate::windscribe::save_standalone_settings(&ctx, &settings);
+                }
+            }
+            Json(json!({ "success": true, "account": acc }))
+        }
+        Err(e) => {
+            eprintln!("[Windscribe API Error] register failed: {e}");
+            ctx.supervisor().record("windscribe", "warn", format!("Register failed: {e}"));
+            Json(json!({ "success": false, "error": e }))
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WindscribeRefreshPayload {
+    upstream_proxy: Option<String>,
+}
+
+async fn handle_windscribe_refresh(
+    State(ctx): State<AppContext>,
+    payload: Option<Json<WindscribeRefreshPayload>>,
+) -> impl IntoResponse {
+    let snap = ctx.windscribe().snapshot().await;
+    let mut acc = match snap.account {
+        Some(a) => a,
+        None => return Json(json!({ "success": false, "error": "当前未登录任何 Windscribe 账号" })),
+    };
+    let proxy = payload.and_then(|Json(p)| p.upstream_proxy);
+    let proxy_ref = proxy.as_deref();
+
+    if let Err(e) = crate::windscribe::refresh_session_info(&mut acc, proxy_ref).await {
+        eprintln!("[Windscribe API Error] refresh failed: {e}");
+        return Json(json!({ "success": false, "error": e }));
+    }
+    let _ = ctx.windscribe().save_account(&ctx, &acc).await;
+
+    if let Ok(servers) = crate::windscribe::fetch_server_list(&acc.loc_hash, proxy_ref).await {
+        let _ = ctx.windscribe().save_servers(&ctx, &servers).await;
+    }
+
+    Json(json!({ "success": true, "account": acc }))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveWindscribeConfigPayload {
+    listen_address: Option<String>,
+    listen_port: Option<u16>,
+    country: Option<String>,
+    server_tag: Option<String>,
+    upstream_proxy: Option<String>,
+    auto_failover: Option<bool>,
+}
+
+async fn handle_save_windscribe_config(
+    State(ctx): State<AppContext>,
+    Json(payload): Json<SaveWindscribeConfigPayload>,
+) -> impl IntoResponse {
+    let mut settings = crate::windscribe::load_standalone_settings(&ctx);
+    if let Some(addr) = payload.listen_address {
+        let trimmed = addr.trim().to_string();
+        settings.listen_address = if trimmed.is_empty() { None } else { Some(trimmed) };
+    }
+    if let Some(port) = payload.listen_port {
+        settings.listen_port = if port == 0 { None } else { Some(port) };
+    }
+    if let Some(cc) = payload.country {
+        let trimmed = cc.trim().to_uppercase();
+        settings.country = if trimmed.is_empty() { None } else { Some(trimmed) };
+    }
+    if let Some(tag) = payload.server_tag {
+        let trimmed = tag.trim().to_string();
+        settings.server_tag = if trimmed.is_empty() { None } else { Some(trimmed) };
+    }
+    if let Some(proxy) = payload.upstream_proxy {
+        let trimmed = proxy.trim().to_string();
+        settings.upstream_proxy = if trimmed.is_empty() { None } else { Some(trimmed) };
+    }
+    if let Some(af) = payload.auto_failover {
+        settings.auto_failover = af;
+    }
+
+    if let Err(e) = crate::windscribe::save_standalone_settings(&ctx, &settings) {
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "success": false, "error": e })),
+        ).into_response();
+    }
+    Json(json!({ "success": true })).into_response()
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct StartWindscribePayload {
+    country: Option<String>,
+    server_tag: Option<String>,
+    listen_address: Option<String>,
+    listen_port: Option<u16>,
+}
+
+async fn handle_start_windscribe(
+    State(ctx): State<AppContext>,
+    payload: Option<Json<StartWindscribePayload>>,
+) -> impl IntoResponse {
+    let mut settings = crate::windscribe::load_standalone_settings(&ctx);
+    if let Some(Json(pl)) = payload {
+        let mut changed = false;
+        if let Some(cc) = pl.country {
+            let trimmed = cc.trim().to_uppercase();
+            settings.country = if trimmed.is_empty() { None } else { Some(trimmed) };
+            changed = true;
+        }
+        if let Some(tag) = pl.server_tag {
+            let trimmed = tag.trim().to_string();
+            settings.server_tag = if trimmed.is_empty() { None } else { Some(trimmed) };
+            changed = true;
+        }
+        if let Some(port) = pl.listen_port {
+            if port > 0 {
+                settings.listen_port = Some(port);
+                changed = true;
+            }
+        }
+        if let Some(addr) = pl.listen_address {
+            let trimmed = addr.trim().to_string();
+            settings.listen_address = if trimmed.is_empty() { None } else { Some(trimmed) };
+            changed = true;
+        }
+        if changed {
+            let _ = crate::windscribe::save_standalone_settings(&ctx, &settings);
+        }
+    }
+
+    match ctx.windscribe().start(&ctx, &settings).await {
+        Ok(addr) => Json(json!({ "success": true, "address": addr.to_string() })).into_response(),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "success": false, "error": e })),
+        ).into_response(),
+    }
+}
+
+async fn handle_stop_windscribe(State(ctx): State<AppContext>) -> impl IntoResponse {
+    ctx.windscribe().stop().await;
+    Json(json!({ "success": true })).into_response()
+}
+
 #[derive(serde::Deserialize)]
 struct SetFullTunnelPayload {
     #[allow(dead_code)]
@@ -1041,6 +1263,14 @@ pub fn api_router() -> Router<AppContext> {
         .route("/api/save_proton_config", post(handle_save_proton_config))
         .route("/api/start_proton", post(handle_start_proton))
         .route("/api/stop_proton", post(handle_stop_proton))
+        // Windscribe
+        .route("/api/windscribe_status", get(handle_windscribe_status).post(handle_windscribe_status))
+        .route("/api/windscribe_login", post(handle_windscribe_login))
+        .route("/api/windscribe_register", post(handle_windscribe_register))
+        .route("/api/windscribe_refresh", post(handle_windscribe_refresh))
+        .route("/api/save_windscribe_config", post(handle_save_windscribe_config))
+        .route("/api/start_windscribe", post(handle_start_windscribe))
+        .route("/api/stop_windscribe", post(handle_stop_windscribe))
         .route("/api/set_full_tunnel", post(handle_set_full_tunnel))
         .route("/api/set_lan_share", post(handle_set_lan_share))
         .route("/api/chain_test", post(handle_chain_test))

@@ -201,22 +201,66 @@ pub fn resolve_sponsor_id(settings: &PsiphonSettings) -> String {
 const MAX_NOTICES: usize = 400;
 
 /// What the user chose about how Psiphon should run.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-#[serde(default, rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(default)]
 pub struct PsiphonSettings {
+    #[serde(rename = "ClientVersion", alias = "clientVersion", alias = "client_version")]
+    pub client_version: Option<String>,
+
+    #[serde(rename = "DisableLocalHTTPProxy", alias = "disableLocalHTTPProxy", alias = "disable_local_http_proxy")]
+    pub disable_local_http_proxy: bool,
+
     /// A two-letter country to exit from, or empty for whichever Psiphon considers best.
+    #[serde(rename = "EgressRegion", alias = "egressRegion", alias = "egress_region")]
     pub egress_region: String,
-    /// Optional custom signature public key (base64) override.
-    pub signature_public_key: Option<String>,
+
+    #[serde(rename = "EmitDiagnosticNetworkParameters", alias = "emitDiagnosticNetworkParameters", alias = "emit_diagnostic_network_parameters")]
+    pub emit_diagnostic_network_parameters: bool,
+
+    #[serde(rename = "EmitDiagnosticNotices", alias = "emitDiagnosticNotices", alias = "emit_diagnostic_notices")]
+    pub emit_diagnostic_notices: bool,
+
+    #[serde(rename = "EstablishTunnelTimeoutSeconds", alias = "establishTunnelTimeoutSeconds", alias = "establish_tunnel_timeout_seconds")]
+    pub establish_tunnel_timeout_seconds: u64,
+
+    /// Optional local SOCKS5 listen address/IP (e.g. "127.0.0.1" or "0.0.0.0").
+    #[serde(rename = "LocalSocksProxyListenInterface", alias = "listenAddress", alias = "listen_address", alias = "localSocksProxyListenInterface")]
+    pub listen_address: Option<String>,
+
     /// Optional fixed local SOCKS5 port (e.g. 10808 for standalone outbound).
     /// If 0 or None in chained mode, a random free port is picked.
+    #[serde(rename = "LocalSocksProxyPort", alias = "listenPort", alias = "listen_port", alias = "localSocksProxyPort")]
     pub listen_port: Option<u16>,
-    /// Optional local SOCKS5 listen address/IP (e.g. "127.0.0.1" or "0.0.0.0").
-    pub listen_address: Option<String>,
+
     /// Optional custom propagation channel ID (e.g. 9E258C5A3F0E4540).
+    #[serde(rename = "PropagationChannelId", alias = "propagationChannelId", alias = "propagation_channel_id")]
     pub propagation_channel_id: Option<String>,
+
+    /// Optional custom signature public key (base64) override.
+    #[serde(rename = "ServerEntrySignaturePublicKey", alias = "signaturePublicKey", alias = "signature_public_key", alias = "serverEntrySignaturePublicKey")]
+    pub signature_public_key: Option<String>,
+
     /// Optional custom sponsor ID (e.g. F6AC81EBF343EE50).
+    #[serde(rename = "SponsorId", alias = "sponsorId", alias = "sponsor_id")]
     pub sponsor_id: Option<String>,
+}
+
+impl Default for PsiphonSettings {
+    fn default() -> Self {
+        Self {
+            client_version: Some("100".to_string()),
+            disable_local_http_proxy: true,
+            egress_region: String::new(),
+            emit_diagnostic_network_parameters: false,
+            emit_diagnostic_notices: true,
+            establish_tunnel_timeout_seconds: ESTABLISH_TUNNEL_TIMEOUT_SECONDS,
+            listen_address: None,
+            listen_port: None,
+            propagation_channel_id: None,
+            signature_public_key: None,
+            sponsor_id: None,
+        }
+    }
 }
 
 impl PsiphonSettings {
@@ -252,6 +296,17 @@ pub fn load_standalone_settings(app: &AppContext) -> PsiphonSettings {
             }
         }
     }
+    // Fallback: check data/psiphon/config.json if standalone_config.json is absent
+    if let Ok(data_dir) = app.path().app_data_dir() {
+        let alt = data_dir.join("psiphon").join("config.json");
+        if alt.exists() {
+            if let Ok(content) = std::fs::read_to_string(&alt) {
+                if let Ok(settings) = serde_json::from_str::<PsiphonSettings>(&content) {
+                    return settings;
+                }
+            }
+        }
+    }
     PsiphonSettings::default()
 }
 
@@ -261,9 +316,9 @@ pub fn save_standalone_settings(app: &AppContext, settings: &PsiphonSettings) ->
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let json = serde_json::to_string_pretty(settings)
-        .map_err(|e| format!("cannot serialize standalone psiphon settings: {e}"))?;
-    std::fs::write(&path, json)
+    let signature_key = resolve_signature_public_key(app, settings);
+    let rendered = render_config(settings, None, &signature_key, false);
+    std::fs::write(&path, &rendered)
         .map_err(|e| format!("cannot save standalone psiphon settings: {e}"))?;
     Ok(())
 }
@@ -427,9 +482,20 @@ impl Psiphon {
         std::fs::create_dir_all(&home)
             .map_err(|error| format!("cannot prepare the Psiphon directory: {error}"))?;
 
-        let config_path = home.join("config.json");
-        std::fs::write(&config_path, render_config(settings, upstream, &signature_key, is_chained))
+        let config_path = if is_chained {
+            home.join("config.json")
+        } else {
+            standalone_config_path(app)
+        };
+        let rendered = render_config(settings, upstream, &signature_key, is_chained);
+        std::fs::write(&config_path, &rendered)
             .map_err(|error| format!("cannot write the Psiphon config: {error}"))?;
+        // Previously, when running in standalone mode we also wrote the same config
+        // to `home/config.json` to keep the files in sync. This caused the global
+        // configuration to be overwritten unintentionally. The extra write has been
+        // removed so that `config.json` remains unchanged when only the standalone
+        // configuration is updated.
+
 
         {
             let mut snapshot = lock(&inner.snapshot);
@@ -746,20 +812,27 @@ pub fn render_config(
 
     let channel_id = resolve_propagation_channel_id(settings);
     let sponsor_id = resolve_sponsor_id(settings);
+    let client_version = settings
+        .client_version
+        .as_deref()
+        .unwrap_or("100");
+    let timeout = if settings.establish_tunnel_timeout_seconds > 0 {
+        settings.establish_tunnel_timeout_seconds
+    } else {
+        ESTABLISH_TUNNEL_TIMEOUT_SECONDS
+    };
 
     let mut config = serde_json::json!({
-        "PropagationChannelId": channel_id,
-        "SponsorId": sponsor_id,
-        "ServerEntrySignaturePublicKey": signature_key.trim(),
-        // Our own version, as a string, which is what tunnel-core's sample says
-        // and what it rejects the config for getting wrong.
-        "ClientVersion": env!("CARGO_PKG_VERSION").replace('.', ""),
+        "ClientVersion": client_version,
+        "DisableLocalHTTPProxy": settings.disable_local_http_proxy,
         "EgressRegion": settings.egress_region.trim(),
-        "EstablishTunnelTimeoutSeconds": ESTABLISH_TUNNEL_TIMEOUT_SECONDS,
+        "EmitDiagnosticNetworkParameters": settings.emit_diagnostic_network_parameters,
+        "EmitDiagnosticNotices": settings.emit_diagnostic_notices,
+        "EstablishTunnelTimeoutSeconds": timeout,
         "LocalSocksProxyPort": local_socks_port,
-        "DisableLocalHTTPProxy": true,
-        "EmitDiagnosticNotices": true,
-        "EmitDiagnosticNetworkParameters": false,
+        "PropagationChannelId": channel_id,
+        "ServerEntrySignaturePublicKey": signature_key.trim(),
+        "SponsorId": sponsor_id,
     });
 
     let listen_interface = if let Some(ref addr) = settings.listen_address {
@@ -784,7 +857,7 @@ pub fn render_config(
     if let Some(address) = upstream {
         config["UpstreamProxyURL"] = serde_json::json!(format!("socks5://{address}"));
     }
-    config.to_string()
+    serde_json::to_string_pretty(&config).unwrap_or_else(|_| config.to_string())
 }
 
 pub fn locate(app: &AppContext) -> Result<PathBuf, String> {
@@ -1185,6 +1258,7 @@ mod tests {
             listen_port: Some(19876),
             propagation_channel_id: Some("CHAN_TEST".into()),
             sponsor_id: Some("SPON_TEST".into()),
+            ..Default::default()
         };
 
         let json = serde_json::to_string_pretty(&settings).unwrap();

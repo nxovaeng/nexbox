@@ -43,6 +43,7 @@ import { Scanner, WarpScoutScanner } from "./Scanner";
 import { CoreManager } from "./CoreManager";
 import { PsiphonManager } from "./PsiphonManager";
 import { ProtonManager } from "./ProtonManager";
+import { WindscribeManager } from "./WindscribeManager";
 import { ProfileManagement, ProfileSelector } from "./ProfileSelector";
 import { transportName } from "./Simple";
 // Bundled into the app rather than read from disk at runtime: the obligation is
@@ -65,6 +66,7 @@ type SectionId =
   | "core"
   | "psiphon"
   | "proton"
+  | "windscribe"
   | "diagnostics"
   | "licences";
 
@@ -84,6 +86,7 @@ const SECTIONS: Array<{ group: string; items: Array<{ id: SectionId; label: stri
     { id: "core", label: "Core Management", icon: ShieldCheck },
     { id: "psiphon", label: "Psiphon 配置管理", icon: Radio },
     { id: "proton", label: "Proton配置管理", icon: ShieldCheck },
+    { id: "windscribe", label: "Windscribe 节点", icon: ShieldCheck },
   ] },
   { group: "Support", items: [
     { id: "diagnostics", label: "Diagnostics", icon: FileText },
@@ -102,6 +105,7 @@ const BLURB: Record<SectionId, string> = {
   core: "Manage and download required core programs.",
   psiphon: "管理 Psiphon 引导节点列表、公钥签名及独立运行启动参数。",
   proton: "管理 Proton 节点凭据、7 天长效证书及 WireProxy 独立运行启动参数。",
+  windscribe: "管理 Windscribe 账号凭据、纯净 HTTPS 代理节点及独立 SOCKS5 转发。",
   diagnostics: "The core executable, logging, and a report you can hand to someone.",
   licences: "What NextVPN is built on, under what terms, and where to get the source.",
 };
@@ -223,6 +227,7 @@ export function Advanced(props: AdvancedProps) {
         {section === "core" && <CoreManager />}
         {section === "psiphon" && <PsiphonManager />}
         {section === "proton" && <ProtonManager />}
+        {section === "windscribe" && <WindscribeManager />}
         {section === "diagnostics" && <Diagnostics {...props} />}
         {section === "licences" && <Licences />}
       </div>

@@ -3999,6 +3999,7 @@ mod tests {
             psiphon: Arc::new(crate::psiphon::Psiphon::new()),
             tor: Arc::new(crate::tor::Tor::new()),
             proton: Arc::new(crate::proton::Proton::new()),
+            windscribe: Arc::new(crate::windscribe::Windscribe::new()),
             lan_door: Arc::new(crate::lan_share::LanDoor::default()),
             config_dir: base_dir.join("config"),
             data_dir: base_dir.join("data"),

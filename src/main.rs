@@ -15,6 +15,7 @@ mod psiphon;
 mod scanner;
 mod tor;
 mod warpscout;
+mod windscribe;
 
 use app_context::AppContext;
 use chain::Chain;
@@ -23,6 +24,7 @@ use lan_share::LanDoor;
 use proton::Proton;
 use psiphon::Psiphon;
 use tor::Tor;
+use windscribe::Windscribe;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -72,6 +74,7 @@ async fn main() {
         psiphon: Arc::new(Psiphon::new()),
         tor: Arc::new(Tor::new()),
         proton: Arc::new(Proton::new()),
+        windscribe: Arc::new(Windscribe::new()),
         lan_door: Arc::new(LanDoor::default()),
         config_dir,
         data_dir,
@@ -79,6 +82,9 @@ async fn main() {
         log_dir,
         event_tx: event_tx.clone(),
     };
+
+    // Load persisted Windscribe accounts and servers
+    ctx.windscribe().load_initial_data(&ctx).await;
 
     // Start the background status pump
     core_supervisor::start_pump(ctx.clone(), &ctx.supervisor());

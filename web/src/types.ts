@@ -423,3 +423,51 @@ export interface ProtonInfo {
   settings: ProtonSettings;
 }
 
+export interface WindscribeAccount {
+  username: string;
+  password?: string | null;
+  email?: string | null;
+  userId?: string | null;
+  sessionAuthHash: string;
+  locHash: string;
+  trafficMax: number;
+  trafficUsed: number;
+  status: number;
+  proxyUsername?: string | null;
+  proxyPassword?: string | null;
+  registeredAt?: string | null;
+}
+
+export interface WindscribeServer {
+  tag: string;
+  loc: string;
+  locName: string;
+  host: string;
+  port: number;
+}
+
+export interface WindscribeSettings {
+  listenAddress?: string | null;
+  listenPort?: number | null;
+  country?: string | null;
+  serverTag?: string | null;
+  upstreamProxy?: string | null;
+  autoFailover: boolean;
+}
+
+export interface WindscribeSnapshot {
+  isRunning: boolean;
+  state: string;
+  activeAddress?: string | null;
+  currentServer?: WindscribeServer | null;
+  account?: WindscribeAccount | null;
+  servers: WindscribeServer[];
+  lastError?: string | null;
+  statusMessage?: string | null;
+}
+
+export interface WindscribeStatusResponse {
+  snapshot: WindscribeSnapshot;
+  settings: WindscribeSettings;
+}
+

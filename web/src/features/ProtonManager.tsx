@@ -182,6 +182,17 @@ export function ProtonManager() {
     }
   };
 
+  const countryServers = useMemo(() => {
+    const list = (info?.servers || []).filter(
+      (s) => !selectedCountry || s.country === selectedCountry
+    );
+    return [...list].sort((a, b) => a.load - b.load || a.name.localeCompare(b.name));
+  }, [info?.servers, selectedCountry]);
+
+  const lowestLoadServer = useMemo(() => {
+    return countryServers.length > 0 ? countryServers[0] : null;
+  }, [countryServers]);
+
   if (loading && !info) {
     return (
       <div className="p-8 text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
@@ -194,17 +205,6 @@ export function ProtonManager() {
   const certExp = info?.certExpiresAt;
   const certDays = info?.certDaysRemaining;
   const expDateStr = certExp ? new Date(certExp * 1000).toLocaleString() : null;
-
-  const countryServers = useMemo(() => {
-    const list = (info?.servers || []).filter(
-      (s) => !selectedCountry || s.country === selectedCountry
-    );
-    return [...list].sort((a, b) => a.load - b.load || a.name.localeCompare(b.name));
-  }, [info?.servers, selectedCountry]);
-
-  const lowestLoadServer = useMemo(() => {
-    return countryServers.length > 0 ? countryServers[0] : null;
-  }, [countryServers]);
 
   return (
     <div className="space-y-6">
