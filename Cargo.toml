@@ -1,0 +1,27 @@
+[package]
+name = "nextvpn"
+version = "1.0.0"
+edition = "2021"
+description = "Unified VPN management server with embedded web UI"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "signal"] }
+tower-http = { version = "0.5", features = ["cors", "fs"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rust-embed = "8"
+mime_guess = "2"
+async-stream = "0.3"
+futures-core = "0.3"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "1"
+getrandom = "0.3"
+flate2 = "1.1.10"
+tar = "0.4.46"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls", "stream"] }
+toml = "0.8"
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+ring = { version = "0.17", features = ["std"] }
+base64 = "0.22"

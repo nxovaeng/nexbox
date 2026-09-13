@@ -1,0 +1,182 @@
+@import "@fontsource/inter/400.css";
+@import "@fontsource/inter/500.css";
+@import "@fontsource/inter/600.css";
+@import "@fontsource/inter/700.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* shadcn/ui tokens, green primary. Dark is the product default, so it is
+     defined on :root and the .light class opts out — the reverse of the shadcn
+     starter, which would otherwise flash light on first paint. */
+  :root {
+    --background: 220 9% 4%;
+    --foreground: 0 0% 95%;
+    --card: 225 8% 9%;
+    --card-foreground: 0 0% 95%;
+    /* The card gradient and the sidebar surface. Cards are lit from the top so
+       they read as raised rather than as outlined holes in the background. */
+    --card-top: 225 8% 11%;
+    --sidebar: 220 8% 7%;
+    --sidebar-foot: 220 9% 4.5%;
+    --popover: 0 0% 9%;
+    --popover-foreground: 0 0% 95%;
+    --primary: 142.1 70.6% 45.3%;
+    --primary-foreground: 144.9 80.4% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 12 6.5% 15.1%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 45%;
+    --destructive-foreground: 0 85.7% 97.3%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 38 92% 10%;
+    --border: 225 7% 15%;
+    --border-strong: 225 7% 19%;
+    --input: 225 7% 15%;
+    --ring: 142.4 71.8% 29.2%;
+    --radius: 0.65rem;
+  }
+
+  .light {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 142.1 76.2% 36.3%;
+    --primary-foreground: 355.7 100% 97.3%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --warning: 38 92% 45%;
+    --warning-foreground: 0 0% 100%;
+    --border: 240 5.9% 90%;
+    --border-strong: 240 5.9% 84%;
+    --input: 240 5.9% 90%;
+    --ring: 142.1 76.2% 36.3%;
+    --card-top: 0 0% 100%;
+    --sidebar: 240 4.8% 98%;
+    --sidebar-foot: 240 4.8% 96%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  /* Persian in the default UI font is legible but poorly shaped. These are the
+     faces an Iranian machine is likely to already have, in the order a Persian
+     reader would prefer them; the system font stays as the last resort, so
+     nothing is downloaded and nothing breaks where none are installed. */
+  :root[lang="fa"] body {
+    font-family: Vazirmatn, "IRANSans", "IRANYekan", Tahoma, system-ui, sans-serif;
+  }
+
+  /* The window is a fixed-size desktop shell, not a scrolling document. */
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  /* Digits that sit in columns must not jitter as they update. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* Raised surface: a top-lit gradient, an inner highlight along the top edge,
+     and a soft drop shadow. Flat borders on a flat background were what made
+     the old screens read as a form rather than as a product. */
+  .surface {
+    background-image: linear-gradient(180deg, hsl(var(--card-top)), hsl(var(--card)));
+    box-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.035),
+      0 6px 18px -10px hsl(0 0% 0% / 0.7);
+  }
+
+  /* Motion for the connect orb. Kept here rather than inline so that a user who
+     asks the OS for less movement gets a still orb instead of a spinning one. */
+  @keyframes orb-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes orb-breathe {
+    0%,
+    100% {
+      opacity: 0.36;
+    }
+    50% {
+      opacity: 0.72;
+    }
+  }
+
+  @keyframes orb-ripple {
+    from {
+      r: 75;
+      opacity: 0.42;
+    }
+    to {
+      r: 132;
+      opacity: 0;
+    }
+  }
+
+  .orb-sweep {
+    transform-origin: 50% 50%;
+    animation: orb-spin 1.15s linear infinite;
+  }
+
+  .orb-orbit {
+    transform-origin: 50% 50%;
+    animation: orb-spin 26s linear infinite;
+  }
+
+  .orb-bloom {
+    animation: orb-breathe 2.1s ease-in-out infinite;
+  }
+
+  .orb-ripple {
+    animation: orb-ripple 3.4s linear infinite;
+  }
+
+  /* Someone who asks for less motion wants the decoration gone, not the only
+     sign that the app is doing something. Turning all of it off made a working
+     app look frozen -- and Windows ships this setting off for plenty of people,
+     so it was the ordinary experience rather than an edge case.
+     The glow, the expanding waves and the drifting ring are decoration and stop.
+     The sweep is the loading indicator and keeps going, slower, so it reads as
+     calm rather than busy. */
+  @media (prefers-reduced-motion: reduce) {
+    .orb-orbit,
+    .orb-bloom,
+    .orb-ripple {
+      animation: none;
+    }
+
+    .orb-sweep {
+      animation-duration: 2.4s;
+    }
+  }
+}
