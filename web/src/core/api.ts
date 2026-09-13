@@ -12,9 +12,10 @@ import type {
   RoutingRulesInfo,
   ProtonInfo,
   ProtonSettings,
+  ProtonServerSummary,
 } from "../types";
 
-export type { PsiphonInfo, RoutingRulesInfo, ProtonInfo, ProtonSettings };
+export type { PsiphonInfo, RoutingRulesInfo, ProtonInfo, ProtonSettings, ProtonServerSummary };
 
 // Same-origin: frontend is embedded in the Rust binary, served from the same port
 export const API_BASE = "/api";
@@ -568,6 +569,14 @@ export async function renewProtonCert(): Promise<{ success: boolean; certExpires
 
 export async function refreshProtonServers(): Promise<{ success: boolean; count: number }> {
   return apiInvoke("proton_refresh_servers");
+}
+
+export async function getProtonServers(country?: string): Promise<ProtonServerSummary[]> {
+  const params = new URLSearchParams();
+  if (country) params.append("country", country);
+  const res = await fetch(`${API_BASE}/proton_servers?${params.toString()}`);
+  if (!res.ok) throw new Error("Failed to fetch Proton servers");
+  return res.json();
 }
 
 export async function saveProtonConfig(payload: {

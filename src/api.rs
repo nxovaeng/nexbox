@@ -707,6 +707,22 @@ async fn handle_stop_proton(State(ctx): State<AppContext>) -> impl IntoResponse 
 }
 
 #[derive(serde::Deserialize)]
+struct ProtonServersQuery {
+    country: Option<String>,
+}
+
+async fn handle_proton_servers(
+    State(ctx): State<AppContext>,
+    axum::extract::Query(query): axum::extract::Query<ProtonServersQuery>,
+) -> impl IntoResponse {
+    let servers = ctx
+        .proton()
+        .get_servers(&ctx, query.country.as_deref())
+        .await;
+    Json(servers)
+}
+
+#[derive(serde::Deserialize)]
 struct SetFullTunnelPayload {
     #[allow(dead_code)]
     enabled: bool,
@@ -1007,6 +1023,7 @@ pub fn api_router() -> Router<AppContext> {
         .route("/api/stop_psiphon", post(handle_stop_psiphon))
         // Proton
         .route("/api/proton_info", get(handle_proton_info).post(handle_proton_info))
+        .route("/api/proton_servers", get(handle_proton_servers))
         .route("/api/proton_login_guest", post(handle_proton_login_guest))
         .route("/api/proton_renew_cert", post(handle_proton_renew_cert))
         .route("/api/proton_refresh_servers", post(handle_proton_refresh_servers))

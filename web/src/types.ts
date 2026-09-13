@@ -387,6 +387,14 @@ export interface ProtonCountrySummary {
   lowestLoad: number;
 }
 
+export interface ProtonServerSummary {
+  name: string;
+  country: string;
+  city?: string | null;
+  load: number;
+  tier: number;
+}
+
 export interface ProtonSettings {
   listenAddress?: string | null;
   listenPort?: number | null;
@@ -411,6 +419,7 @@ export interface ProtonInfo {
   certDaysRemaining?: number | null;
   totalServers: number;
   countries: ProtonCountrySummary[];
+  servers: ProtonServerSummary[];
   settings: ProtonSettings;
 }
 

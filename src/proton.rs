@@ -188,6 +188,16 @@ pub struct ProtonCountrySummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProtonServerSummary {
+    pub name: String,
+    pub country: String,
+    pub city: Option<String>,
+    pub load: u32,
+    pub tier: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProtonInfoResponse {
     pub wireproxy_installed: bool,
     pub wireproxy_path: Option<String>,
@@ -203,6 +213,7 @@ pub struct ProtonInfoResponse {
     pub cert_days_remaining: Option<f64>,
     pub total_servers: usize,
     pub countries: Vec<ProtonCountrySummary>,
+    pub servers: Vec<ProtonServerSummary>,
     pub settings: ProtonSettings,
 }
 
@@ -826,6 +837,41 @@ impl Proton {
         candidates.first().cloned().cloned()
     }
 
+    /// Returns a list of servers matching the specified country and user's tier.
+    pub async fn get_servers(
+        &self,
+        app: &AppContext,
+        country: Option<&str>,
+    ) -> Vec<ProtonServerSummary> {
+        let servers = self.load_cached_servers(app).await;
+        let session = self.load_session(app);
+        let user_tier = session.as_ref().map(|s| s.max_tier).unwrap_or(0);
+
+        let mut filtered: Vec<ProtonServerSummary> = servers
+            .into_iter()
+            .filter(|s| s.tier <= user_tier)
+            .filter(|s| {
+                if let Some(c) = country {
+                    let upper = c.trim().to_uppercase();
+                    if !upper.is_empty() && s.country != upper {
+                        return false;
+                    }
+                }
+                true
+            })
+            .map(|s| ProtonServerSummary {
+                name: s.name,
+                country: s.country,
+                city: s.city,
+                load: s.load,
+                tier: s.tier,
+            })
+            .collect();
+
+        filtered.sort_by(|a, b| a.load.cmp(&b.load).then_with(|| a.name.cmp(&b.name)));
+        filtered
+    }
+
     /// Locates the `wireproxy` executable binary.
     pub fn locate_wireproxy(app: &AppContext) -> Result<PathBuf, String> {
         let exe = if cfg!(windows) { "wireproxy.exe" } else { "wireproxy" };
@@ -876,7 +922,21 @@ impl Proton {
             )
             .await;
 
-        // Auto failover to lowest-load available server in user's tier if requested country is unavailable
+        // Auto failover logic:
+        // 1. If a specific server was specified but not found/offline, fallback to best node in same country
+        if target_server.is_none() && settings.server_name.is_some() && settings.auto_failover {
+            target_server = self
+                .select_server(
+                    app,
+                    settings.country.as_deref(),
+                    None,
+                    user_tier,
+                    &[],
+                )
+                .await;
+        }
+
+        // 2. Auto failover to lowest-load available server in user's tier if requested country is unavailable
         if target_server.is_none() && settings.auto_failover {
             println!(
                 "[proton] Country '{}' has no servers for Tier {}, auto-failing over to best available server in Tier {}",
@@ -1073,6 +1133,18 @@ impl Proton {
             .collect();
         countries.sort_by(|a, b| a.code.cmp(&b.code));
 
+        let mut servers_summary: Vec<ProtonServerSummary> = tier_servers
+            .iter()
+            .map(|s| ProtonServerSummary {
+                name: s.name.clone(),
+                country: s.country.clone(),
+                city: s.city.clone(),
+                load: s.load,
+                tier: s.tier,
+            })
+            .collect();
+        servers_summary.sort_by(|a, b| a.load.cmp(&b.load).then_with(|| a.name.cmp(&b.name)));
+
         let settings = self.load_settings(app);
 
         ProtonInfoResponse {
@@ -1090,6 +1162,7 @@ impl Proton {
             cert_days_remaining,
             total_servers,
             countries,
+            servers: servers_summary,
             settings,
         }
     }

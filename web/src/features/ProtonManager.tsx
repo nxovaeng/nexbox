@@ -47,6 +47,7 @@ export function ProtonManager() {
   const [listenAddress, setListenAddress] = useState("127.0.0.1");
   const [listenPort, setListenPort] = useState(10810);
   const [selectedCountry, setSelectedCountry] = useState("US");
+  const [selectedServer, setSelectedServer] = useState("");
   const [autoFailover, setAutoFailover] = useState(true);
 
   const fetchInfo = useCallback(async () => {
@@ -56,6 +57,7 @@ export function ProtonManager() {
       setListenAddress(res.settings.listenAddress || "127.0.0.1");
       setListenPort(res.settings.listenPort || 10810);
       setSelectedCountry(res.settings.country || "US");
+      setSelectedServer(res.settings.serverName || "");
       setAutoFailover(res.settings.autoFailover ?? true);
       setError(null);
     } catch (e: any) {
@@ -64,6 +66,16 @@ export function ProtonManager() {
       setLoading(false);
     }
   }, []);
+
+  const handleSelectCountry = (countryCode: string) => {
+    setSelectedCountry(countryCode);
+    if (selectedServer && countryCode) {
+      const s = info?.servers?.find((item) => item.name === selectedServer);
+      if (s && s.country !== countryCode) {
+        setSelectedServer("");
+      }
+    }
+  };
 
   useEffect(() => {
     fetchInfo();
@@ -125,7 +137,8 @@ export function ProtonManager() {
       await saveProtonConfig({
         listenAddress,
         listenPort,
-        country: selectedCountry,
+        country: selectedCountry || undefined,
+        serverName: selectedServer || undefined,
         autoFailover,
       });
       showSuccess("Proton 独立启动配置已成功保存！");
@@ -144,7 +157,8 @@ export function ProtonManager() {
       const res = await startProton({
         listenAddress,
         listenPort,
-        country: selectedCountry,
+        country: selectedCountry || undefined,
+        serverName: selectedServer || undefined,
       });
       showSuccess(`WireProxy 已成功启动！SOCKS5 监听于 ${res.address || `${listenAddress}:${listenPort}`}`);
       await fetchInfo();
@@ -181,6 +195,10 @@ export function ProtonManager() {
   const certExp = info?.certExpiresAt;
   const certDays = info?.certDaysRemaining;
   const expDateStr = certExp ? new Date(certExp * 1000).toLocaleString() : null;
+
+  const countryServers = (info?.servers || []).filter(
+    (s) => !selectedCountry || s.country === selectedCountry
+  );
 
   return (
     <div className="space-y-6">
@@ -270,7 +288,7 @@ export function ProtonManager() {
           <div className="px-4 pb-3 pt-1 border-t border-border/40 text-xs flex items-center justify-between text-muted-foreground">
             <div className="flex items-center gap-2">
               <span className="font-medium text-foreground">出口节点:</span>
-              <span className="font-mono text-emerald-500">{info.activeServer || "自动"}</span>
+              <span className="font-mono text-emerald-500">{info.activeServer || "自动选择"}</span>
               <span className="text-border">|</span>
               <span>地区:</span>
               <span className="font-semibold text-foreground">{info.activeCountry || "US"}</span>
@@ -416,46 +434,54 @@ export function ProtonManager() {
           </div>
         </CardHeader>
         <CardContent className="space-y-5">
-          {/* 出口国家/地区选择 */}
+          {/* 出口国家/地区选择（保留免费级全部国家） */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium flex items-center gap-1.5">
                 <Globe className="w-3.5 h-3.5 text-primary" />
-                出口国家/地区 (已根据用户层级筛选)
+                第一步：选择出口国家 (已保留全部免费级可用国家)
               </label>
               <span className="text-[11px] text-muted-foreground">
-                切换地区无需重签证书，节点秒级切换
+                切换国家无需重签证书，秒级切换
               </span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {/* 所有免费层级国家按钮网格 */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
               {(info?.countries && info.countries.length > 0
-                ? info.countries.slice(0, 4).map((c) => c.code)
-                : ["US", "NL", "JP", "RO"]
-              ).map((cc) => {
-                const count = info?.countries.find((c) => c.code === cc)?.count || 0;
-                const load = info?.countries.find((c) => c.code === cc)?.lowestLoad;
+                ? info.countries
+                : [
+                    { code: "US", count: 0, lowestLoad: 20 },
+                    { code: "NL", count: 0, lowestLoad: 15 },
+                    { code: "JP", count: 0, lowestLoad: 25 },
+                    { code: "RO", count: 0, lowestLoad: 18 },
+                    { code: "PL", count: 0, lowestLoad: 30 },
+                  ]
+              ).map((c) => {
+                const cc = c.code;
+                const count = c.count;
+                const load = c.lowestLoad;
                 const isSelected = selectedCountry === cc;
                 return (
                   <button
                     key={cc}
                     type="button"
-                    onClick={() => setSelectedCountry(cc)}
+                    onClick={() => handleSelectCountry(cc)}
                     className={`p-2 rounded-md border text-left transition-all ${
                       isSelected
-                        ? "border-primary bg-primary/10 text-primary"
+                        ? "border-primary bg-primary/10 text-primary shadow-sm"
                         : "border-border/50 hover:bg-muted/40 text-muted-foreground"
                     }`}
                   >
                     <div className="text-xs font-semibold flex items-center justify-between">
-                       <span>{cc}</span>
+                      <span>{cc}</span>
                       {load !== undefined && (
-                        <span className="text-[10px] font-mono px-1 rounded bg-muted/60">
+                        <span className={`text-[10px] font-mono px-1 rounded ${load < 50 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-muted/60"}`}>
                           负载 {load}%
                         </span>
                       )}
                     </div>
-                    <div className="text-[11px] truncate mt-0.5">
+                    <div className="text-[11px] truncate mt-0.5 font-medium">
                       {COUNTRY_NAMES[cc]?.split(" ")[0] || cc}
                     </div>
                     <div className="text-[10px] text-muted-foreground/80 mt-0.5">
@@ -470,9 +496,9 @@ export function ProtonManager() {
               <select
                 className="h-8 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 value={selectedCountry}
-                onChange={(e) => setSelectedCountry(e.target.value)}
+                onChange={(e) => handleSelectCountry(e.target.value)}
               >
-                <option value="">自动选择最佳 (全局最低负载)</option>
+                <option value="">自动选择最佳国家 (全局最低负载)</option>
                 {info?.countries.map((c) => (
                   <option key={c.code} value={c.code}>
                     {c.code} - {COUNTRY_NAMES[c.code] || c.code} ({c.count} 节点, 最低负载 {c.lowestLoad}%)
@@ -480,8 +506,71 @@ export function ProtonManager() {
                 ))}
               </select>
               <span className="text-[11px] text-muted-foreground">
-                可从所有覆盖国家中任意指定
+                可从所有免费国家中任意指定，下方节点列表将联动筛选
               </span>
+            </div>
+          </div>
+
+          <Separator className="my-1" />
+
+          {/* 出口节点选择（级联筛选与自动选择） */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium flex items-center gap-1.5">
+                <Server className="w-3.5 h-3.5 text-blue-500" />
+                第二步：选择节点 (Node - 可自动选)
+              </label>
+              <span className="text-[11px] text-muted-foreground font-mono">
+                {selectedCountry
+                  ? `${COUNTRY_NAMES[selectedCountry]?.split(" ")[0] || selectedCountry} 筛选出 ${countryServers.length} 个可用节点`
+                  : `全部国家共 ${info?.totalServers || 0} 个节点`}
+              </span>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <select
+                className="h-8 flex-1 rounded-md border border-input bg-background px-3 py-1 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-mono"
+                value={selectedServer}
+                onChange={(e) => setSelectedServer(e.target.value)}
+              >
+                <option value="">
+                  ★ 自动选择最佳节点 ({selectedCountry ? `${selectedCountry} 最低负载` : "全局最低负载"})
+                </option>
+                {countryServers.map((s) => (
+                  <option key={s.name} value={s.name}>
+                    {s.name} - 负载 {s.load}% {s.city ? `(${s.city})` : ""}
+                  </option>
+                ))}
+              </select>
+
+              {selectedServer && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs text-muted-foreground hover:text-foreground shrink-0"
+                  onClick={() => setSelectedServer("")}
+                >
+                  恢复自动选节点
+                </Button>
+              )}
+            </div>
+
+            <div className="text-[11px] text-muted-foreground bg-muted/20 p-2.5 rounded border border-border/30">
+              {selectedServer ? (
+                <div>
+                  已锁定指定节点：<strong className="text-foreground font-mono">{selectedServer}</strong>
+                  {autoFailover && "（已开启断流自动故障转移：若该节点临时故障将自动平滑切回本国其他低负载节点）"}
+                </div>
+              ) : (
+                <div>
+                  当前处于 <strong className="text-emerald-500">自动选节点模式</strong>：启动时将从{" "}
+                  <strong className="text-foreground">
+                    {selectedCountry ? COUNTRY_NAMES[selectedCountry]?.split(" ")[0] || selectedCountry : "全部国家"}
+                  </strong>{" "}
+                  中自动选取实时负载最低的节点。
+                </div>
+              )}
             </div>
           </div>
 
