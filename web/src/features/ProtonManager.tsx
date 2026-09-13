@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   Key, RefreshCw, Play, Square, Settings, Server, Globe,
   CheckCircle2, AlertCircle, Clock, Zap, Smartphone, Check, Loader2
@@ -44,6 +44,7 @@ export function ProtonManager() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Standalone settings local state
+  const hasInitializedRef = useRef(false);
   const [listenAddress, setListenAddress] = useState("127.0.0.1");
   const [listenPort, setListenPort] = useState(10810);
   const [selectedCountry, setSelectedCountry] = useState("US");
@@ -54,11 +55,14 @@ export function ProtonManager() {
     try {
       const res = await getProtonInfo();
       setInfo(res);
-      setListenAddress(res.settings.listenAddress || "127.0.0.1");
-      setListenPort(res.settings.listenPort || 10810);
-      setSelectedCountry(res.settings.country || "US");
-      setSelectedServer(res.settings.serverName || "");
-      setAutoFailover(res.settings.autoFailover ?? true);
+      if (!hasInitializedRef.current) {
+        hasInitializedRef.current = true;
+        setListenAddress(res.settings.listenAddress || "127.0.0.1");
+        setListenPort(res.settings.listenPort || 10810);
+        setSelectedCountry(res.settings.country || "US");
+        setSelectedServer(res.settings.serverName || "");
+        setAutoFailover(res.settings.autoFailover ?? true);
+      }
       setError(null);
     } catch (e: any) {
       setError(e.message || "无法获取 Proton 状态");
@@ -69,12 +73,7 @@ export function ProtonManager() {
 
   const handleSelectCountry = (countryCode: string) => {
     setSelectedCountry(countryCode);
-    if (selectedServer && countryCode) {
-      const s = info?.servers?.find((item) => item.name === selectedServer);
-      if (s && s.country !== countryCode) {
-        setSelectedServer("");
-      }
-    }
+    setSelectedServer("");
   };
 
   useEffect(() => {
@@ -138,7 +137,7 @@ export function ProtonManager() {
         listenAddress,
         listenPort,
         country: selectedCountry || undefined,
-        serverName: selectedServer || undefined,
+        serverName: selectedServer || "",
         autoFailover,
       });
       showSuccess("Proton 独立启动配置已成功保存！");
@@ -158,7 +157,7 @@ export function ProtonManager() {
         listenAddress,
         listenPort,
         country: selectedCountry || undefined,
-        serverName: selectedServer || undefined,
+        serverName: selectedServer || "",
       });
       showSuccess(`WireProxy 已成功启动！SOCKS5 监听于 ${res.address || `${listenAddress}:${listenPort}`}`);
       await fetchInfo();
@@ -196,9 +195,16 @@ export function ProtonManager() {
   const certDays = info?.certDaysRemaining;
   const expDateStr = certExp ? new Date(certExp * 1000).toLocaleString() : null;
 
-  const countryServers = (info?.servers || []).filter(
-    (s) => !selectedCountry || s.country === selectedCountry
-  );
+  const countryServers = useMemo(() => {
+    const list = (info?.servers || []).filter(
+      (s) => !selectedCountry || s.country === selectedCountry
+    );
+    return [...list].sort((a, b) => a.load - b.load || a.name.localeCompare(b.name));
+  }, [info?.servers, selectedCountry]);
+
+  const lowestLoadServer = useMemo(() => {
+    return countryServers.length > 0 ? countryServers[0] : null;
+  }, [countryServers]);
 
   return (
     <div className="space-y-6">
@@ -534,7 +540,7 @@ export function ProtonManager() {
                 onChange={(e) => setSelectedServer(e.target.value)}
               >
                 <option value="">
-                  ★ 自动选择最佳节点 ({selectedCountry ? `${selectedCountry} 最低负载` : "全局最低负载"})
+                  ★ 自动选择最佳节点 ({lowestLoadServer ? `当前本国最低: ${lowestLoadServer.name} - 负载 ${lowestLoadServer.load}%` : "实时最低负载"})
                 </option>
                 {countryServers.map((s) => (
                   <option key={s.name} value={s.name}>
@@ -564,11 +570,17 @@ export function ProtonManager() {
                 </div>
               ) : (
                 <div>
-                  当前处于 <strong className="text-emerald-500">自动选节点模式</strong>：启动时将从{" "}
+                  当前处于 <strong className="text-emerald-500">自动选节点模式</strong>：已从{" "}
                   <strong className="text-foreground">
                     {selectedCountry ? COUNTRY_NAMES[selectedCountry]?.split(" ")[0] || selectedCountry : "全部国家"}
                   </strong>{" "}
-                  中自动选取实时负载最低的节点。
+                  （共筛选出 <span className="font-mono font-semibold text-foreground">{countryServers.length}</span> 个节点）中计算并匹配最低负载节点
+                  {lowestLoadServer && (
+                    <>
+                      ：推荐 <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{lowestLoadServer.name}</span>
+                      {lowestLoadServer.city && ` (${lowestLoadServer.city})`}，当前实时负载仅 <span className="font-semibold">{lowestLoadServer.load}%</span>
+                    </>
+                  )}。
                 </div>
               )}
             </div>

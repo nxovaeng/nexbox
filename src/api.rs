@@ -628,7 +628,11 @@ async fn handle_save_proton_config(
     }
     if let Some(country) = payload.country {
         let trimmed = country.trim().to_uppercase();
-        settings.country = if trimmed.is_empty() { None } else { Some(trimmed) };
+        let new_country = if trimmed.is_empty() { None } else { Some(trimmed) };
+        if settings.country != new_country {
+            settings.country = new_country;
+            settings.server_name = None;
+        }
     }
     if let Some(name) = payload.server_name {
         let trimmed = name.trim().to_string();
@@ -667,13 +671,20 @@ async fn handle_start_proton(
         let mut changed = false;
         if let Some(country) = pl.country {
             let trimmed = country.trim().to_uppercase();
-            settings.country = if trimmed.is_empty() { None } else { Some(trimmed) };
-            changed = true;
+            let new_country = if trimmed.is_empty() { None } else { Some(trimmed) };
+            if settings.country != new_country {
+                settings.country = new_country;
+                settings.server_name = None;
+                changed = true;
+            }
         }
         if let Some(server) = pl.server_name {
             let trimmed = server.trim().to_string();
-            settings.server_name = if trimmed.is_empty() { None } else { Some(trimmed) };
-            changed = true;
+            let new_server = if trimmed.is_empty() { None } else { Some(trimmed) };
+            if settings.server_name != new_server {
+                settings.server_name = new_server;
+                changed = true;
+            }
         }
         if let Some(port) = pl.listen_port {
             if port > 0 {

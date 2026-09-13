@@ -805,10 +805,16 @@ impl Proton {
             return None;
         }
 
-        // Direct name match
+        // Direct name match (must match user's tier and requested country)
         if let Some(name) = server_name {
-            if !name.is_empty() {
-                if let Some(found) = servers.iter().find(|s| s.name.eq_ignore_ascii_case(name)) {
+            let trimmed = name.trim();
+            if !trimmed.is_empty() {
+                if let Some(found) = servers.iter().find(|s| {
+                    s.name.eq_ignore_ascii_case(trimmed)
+                        && s.tier <= max_tier
+                        && !exclude_server_names.contains(&s.name)
+                        && (country.is_none() || country.unwrap().trim().is_empty() || s.country.eq_ignore_ascii_case(country.unwrap().trim()))
+                }) {
                     return Some(found.clone());
                 }
             }
@@ -824,7 +830,7 @@ impl Proton {
         if let Some(cc) = country {
             let upper = cc.trim().to_uppercase();
             if !upper.is_empty() {
-                candidates.retain(|s| s.country == upper);
+                candidates.retain(|s| s.country.eq_ignore_ascii_case(&upper));
             }
         }
 
@@ -1253,5 +1259,91 @@ mod tests {
         assert!(res.is_err());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn country_filtering_selects_lowest_load_in_country() {
+        let (event_tx, _) = tokio::sync::broadcast::channel(10);
+        let ctx = AppContext {
+            supervisor: Arc::new(crate::core_supervisor::CoreSupervisor::new()),
+            chain: Arc::new(crate::chain::Chain::new()),
+            psiphon: Arc::new(crate::psiphon::Psiphon::new()),
+            tor: Arc::new(crate::tor::Tor::new()),
+            proton: Arc::new(Proton::new()),
+            lan_door: Arc::new(crate::lan_share::LanDoor::default()),
+            config_dir: std::path::PathBuf::from("/tmp"),
+            data_dir: std::path::PathBuf::from("/tmp"),
+            resource_dir: std::path::PathBuf::from("/tmp"),
+            log_dir: std::path::PathBuf::from("/tmp"),
+            event_tx,
+        };
+
+        let proton = Proton::new();
+        {
+            let mut cache = proton.servers_cache.write().await;
+            *cache = vec![
+                ProtonServer {
+                    id: "US-1".into(),
+                    name: "US-FREE#1".into(),
+                    country: "US".into(),
+                    city: None,
+                    tier: 0,
+                    score: 1.0,
+                    load: 40,
+                    entry_ip: "1.1.1.1".into(),
+                    x25519_public_key: "key1".into(),
+                    endpoint_port: 51820,
+                },
+                ProtonServer {
+                    id: "NL-1".into(),
+                    name: "NL-FREE#1".into(),
+                    country: "NL".into(),
+                    city: None,
+                    tier: 0,
+                    score: 1.0,
+                    load: 85,
+                    entry_ip: "2.2.2.1".into(),
+                    x25519_public_key: "key2".into(),
+                    endpoint_port: 51820,
+                },
+                ProtonServer {
+                    id: "NL-2".into(),
+                    name: "NL-FREE#2".into(),
+                    country: "NL".into(),
+                    city: None,
+                    tier: 0,
+                    score: 1.0,
+                    load: 72,
+                    entry_ip: "2.2.2.2".into(),
+                    x25519_public_key: "key3".into(),
+                    endpoint_port: 51820,
+                },
+            ];
+        }
+
+        // Test 1: Selecting NL with auto server (None) MUST pick NL-FREE#2 (load 72), NOT US-FREE#1 (load 40)
+        let s1 = proton.select_server(&ctx, Some("NL"), None, 0, &[]).await;
+        assert!(s1.is_some());
+        let s1 = s1.unwrap();
+        assert_eq!(s1.country, "NL");
+        assert_eq!(s1.name, "NL-FREE#2");
+        assert_eq!(s1.load, 72);
+
+        // Test 2: Selecting US with auto server (None) picks US-FREE#1 (load 40)
+        let s2 = proton.select_server(&ctx, Some("US"), None, 0, &[]).await;
+        assert!(s2.is_some());
+        let s2 = s2.unwrap();
+        assert_eq!(s2.country, "US");
+        assert_eq!(s2.name, "US-FREE#1");
+        assert_eq!(s2.load, 40);
+
+        // Test 3: If an old server from another country (e.g. US-FREE#1) was requested while country is NL,
+        // it must ignore US-FREE#1 and select the lowest load node in NL!
+        let s3 = proton.select_server(&ctx, Some("NL"), Some("US-FREE#1"), 0, &[]).await;
+        assert!(s3.is_some());
+        let s3 = s3.unwrap();
+        assert_eq!(s3.country, "NL");
+        assert_eq!(s3.name, "NL-FREE#2");
+        assert_eq!(s3.load, 72);
     }
 }
