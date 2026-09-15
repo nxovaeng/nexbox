@@ -471,3 +471,56 @@ export interface WindscribeStatusResponse {
   settings: WindscribeSettings;
 }
 
+// ── Multi-Instance SOCKS5 Types ─────────────────────────────────────────────
+
+export type SocksUpstreamType = "warp" | "proton" | "windscribe" | "psiphon" | "tor" | "custom";
+
+export interface SocksInstanceConfig {
+  id: string;
+  name: string;
+  listenHost: string;
+  listenPort: number;
+  username?: string | null;
+  password?: string | null;
+  autostart: boolean;
+  upstreamType: SocksUpstreamType;
+  upstreamConfig: Record<string, any>;
+}
+
+export interface ConnectivityResult {
+  success: boolean;
+  ip?: string | null;
+  country?: string | null;
+  colo?: string | null;
+  org?: string | null;
+  latencyMs?: number | null;
+  error?: string | null;
+  checkedAt: number;
+}
+
+export interface SocksSpeedResult {
+  success: boolean;
+  mbps?: number | null;
+  bytes: number;
+  durationSecs: number;
+  error?: string | null;
+  testedAt: number;
+}
+
+export interface SocksInstanceStatus {
+  id: string;
+  isRunning: boolean;
+  state: "stopped" | "starting" | "running" | "error";
+  boundAddress?: string | null;
+  upstreamAddress?: string | null;
+  lastError?: string | null;
+  startedAt?: number | null;
+  lastConnectivity?: ConnectivityResult | null;
+  lastSpeed?: SocksSpeedResult | null;
+}
+
+export interface SocksInstanceView extends SocksInstanceConfig {
+  status: SocksInstanceStatus;
+}
+
+

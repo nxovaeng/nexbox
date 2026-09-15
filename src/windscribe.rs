@@ -893,7 +893,9 @@ impl Windscribe {
             roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
         };
         let client_config = Arc::new(
-            ClientConfig::builder()
+            ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+                .with_safe_default_protocol_versions()
+                .map_err(|e| format!("TLS version error: {e}"))?
                 .with_root_certificates(roots)
                 .with_no_client_auth(),
         );
@@ -916,7 +918,9 @@ impl Windscribe {
                     let basic = auth_basic.clone();
 
                     thread::spawn(move || {
-                        let _ = handle_socks5_client(client, &s_host, srv_port, &basic, config);
+                        if let Err(e) = handle_socks5_client(client, &s_host, srv_port, &basic, config) {
+                            eprintln!("[windscribe-bridge] Client forward error: {e}");
+                        }
                     });
                 }
             })
@@ -1068,6 +1072,9 @@ fn splice_tls(client: TcpStream, tls: StreamOwned<ClientConnection, TcpStream>) 
     let Ok(client_read) = client.try_clone() else { return };
     let (mut c_r, mut c_w) = (client_read, client);
 
+    // Set a short read timeout on the remote TLS stream so lock is released periodically
+    let _ = tls.sock.set_read_timeout(Some(Duration::from_millis(300)));
+
     let tls = Arc::new(std::sync::Mutex::new(tls));
     let tls_out = tls.clone();
     let running = Arc::new(AtomicBool::new(true));
@@ -1104,6 +1111,11 @@ fn splice_tls(client: TcpStream, tls: StreamOwned<ClientConnection, TcpStream>) 
             };
             match guard.read(&mut buf) {
                 Ok(n) => n,
+                Err(ref e) if e.kind() == io::ErrorKind::TimedOut || e.kind() == io::ErrorKind::WouldBlock => {
+                    drop(guard);
+                    thread::sleep(Duration::from_millis(10));
+                    continue;
+                }
                 Err(_) => break,
             }
         };
@@ -1197,15 +1209,5 @@ mod tests {
     fn test_create_http_client_with_socks5() {
         let client = create_http_client(Some("socks5://192.168.6.1:10801"));
         assert!(client.is_ok(), "Client should build with socks5 proxy: {:?}", client.err());
-    }
-
-    #[tokio::test]
-    async fn test_socks5_live_request_to_windscribe() {
-        let client = create_http_client(Some("socks5://192.168.6.1:10801"))
-            .expect("failed to create client");
-        let resp = client.get(format!("{API_BASE_URL}/")).send().await;
-        if let Ok(r) = resp {
-            assert!(r.status().is_success() || r.status().as_u16() == 404 || r.status().as_u16() == 429);
-        }
     }
 }

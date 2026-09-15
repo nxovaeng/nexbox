@@ -6,7 +6,6 @@ import {
   BookOpen, ShieldAlert, Zap, Compass, ChevronDown, ChevronUp, Radio,
   type LucideIcon,
 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -197,7 +196,6 @@ export function Advanced(props: AdvancedProps) {
               disabled={props.snapshot.state !== "idle" && props.snapshot.state !== "error" && props.snapshot.state !== "stopped"}
               onManageClick={() => setSection("profiles")}
             />
-            <StateBadge snapshot={props.snapshot} />
             <Button variant="outline" size="sm" onClick={props.onSave}>
               {t("Save profile")}
             </Button>
@@ -232,21 +230,6 @@ export function Advanced(props: AdvancedProps) {
         {section === "licences" && <Licences />}
       </div>
     </div>
-  );
-}
-
-function StateBadge({ snapshot }: { snapshot: CoreSnapshot }) {
-  const t = useT();
-  if (snapshot.state === "connected")
-    return <Badge variant="ok" className="gap-1.5"><span className="size-1.5 rounded-full bg-current" />{t("Connected")}</Badge>;
-  if (snapshot.state === "error")
-    return <Badge variant="bad" className="gap-1.5"><span className="size-1.5 rounded-full bg-current" />{t("Stopped")}</Badge>;
-  if (snapshot.state === "idle") return <Badge variant="outline">{t("Idle")}</Badge>;
-  return (
-    <Badge variant="warn" className="gap-1.5">
-      <span className="size-1.5 animate-pulse rounded-full bg-current" />
-      {snapshot.attempt > 0 ? `${t("Attempt")} ${snapshot.attempt}/${snapshot.maxAttempts}` : t("Working")}
-    </Badge>
   );
 }
 

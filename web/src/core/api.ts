@@ -18,6 +18,11 @@ import type {
   WindscribeSettings,
   WindscribeServer,
   WindscribeSnapshot,
+  SocksInstanceConfig,
+  SocksInstanceStatus,
+  SocksInstanceView,
+  ConnectivityResult,
+  SocksSpeedResult,
 } from "../types";
 
 export type {
@@ -31,6 +36,11 @@ export type {
   WindscribeSettings,
   WindscribeServer,
   WindscribeSnapshot,
+  SocksInstanceConfig,
+  SocksInstanceStatus,
+  SocksInstanceView,
+  ConnectivityResult,
+  SocksSpeedResult,
 };
 
 // Same-origin: frontend is embedded in the Rust binary, served from the same port
@@ -670,4 +680,49 @@ export async function startWindscribe(payload?: {
 export async function stopWindscribe(): Promise<{ success: boolean; error?: string }> {
   return apiInvoke("stop_windscribe");
 }
+
+// ── Multi-instance SOCKS5 Management API ────────────────────────────────────
+
+export async function listSocksInstances(): Promise<SocksInstanceView[]> {
+  const res = await fetch(`${API_BASE}/socks_instances`);
+  if (!res.ok) throw new Error("Failed to fetch SOCKS5 instances");
+  return res.json();
+}
+
+export async function createSocksInstance(config: SocksInstanceConfig): Promise<SocksInstanceView> {
+  return apiInvoke("socks_instances", config);
+}
+
+export async function updateSocksInstance(config: SocksInstanceConfig): Promise<SocksInstanceView> {
+  return apiInvoke("socks_instances/update", config);
+}
+
+export async function deleteSocksInstance(id: string): Promise<{ success: boolean }> {
+  return apiInvoke("socks_instances/delete", { id });
+}
+
+export async function startSocksInstance(id: string): Promise<SocksInstanceStatus> {
+  return apiInvoke("socks_instances/start", { id });
+}
+
+export async function stopSocksInstance(id: string): Promise<SocksInstanceStatus> {
+  return apiInvoke("socks_instances/stop", { id });
+}
+
+export async function restartSocksInstance(id: string): Promise<SocksInstanceStatus> {
+  return apiInvoke("socks_instances/restart", { id });
+}
+
+export async function testSocksConnectivity(id: string): Promise<ConnectivityResult> {
+  return apiInvoke("socks_instances/test_connectivity", { id });
+}
+
+export async function testSocksSpeed(id: string): Promise<SocksSpeedResult> {
+  return apiInvoke("socks_instances/test_speed", { id });
+}
+
+export async function setSocksAutostart(id: string, autostart: boolean): Promise<{ success: boolean; autostart: boolean }> {
+  return apiInvoke("socks_instances/set_autostart", { id, autostart });
+}
+
 

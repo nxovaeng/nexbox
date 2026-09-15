@@ -9,6 +9,7 @@ use crate::core_supervisor::CoreSupervisor;
 use crate::lan_share::LanDoor;
 use crate::proton::Proton;
 use crate::psiphon::Psiphon;
+use crate::socks_instance::SocksInstanceManager;
 use crate::tor::Tor;
 use crate::windscribe::Windscribe;
 
@@ -21,6 +22,7 @@ pub struct AppContext {
     pub proton: Arc<Proton>,
     pub windscribe: Arc<Windscribe>,
     pub lan_door: Arc<LanDoor>,
+    pub socks_mgr: Arc<SocksInstanceManager>,
     
     pub config_dir: PathBuf,
     pub data_dir: PathBuf,
@@ -74,4 +76,5 @@ impl AppContext {
     pub fn tor(&self) -> Arc<Tor> { self.tor.clone() }
     pub fn proton(&self) -> Arc<Proton> { self.proton.clone() }
     pub fn windscribe(&self) -> Arc<Windscribe> { self.windscribe.clone() }
+    pub fn socks_mgr(&self) -> Arc<SocksInstanceManager> { self.socks_mgr.clone() }
 }

@@ -1,19 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BadgeCheck, Search, Settings2, ShieldAlert, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Activity, BadgeCheck, Search, Server, Settings2, X } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Advanced } from "@/features/Advanced";
-import { Simple } from "@/features/Simple";
-import { type CarryMode, carryFromProfile } from "@/features/carry";
-import { SAMPLE_MS, type Sample, append } from "@/features/latency";
+import { SocksDashboard } from "@/features/SocksDashboard";
+import { SocksManager } from "@/features/SocksManager";
 import { CommandPalette } from "@/features/CommandPalette";
 import type { SectionId } from "@/features/settingsIndex";
 import logo from "@/assets/logo.png";
 import { applyLanguage } from "@/core/i18n";
 import { useT } from "@/core/useT";
 import {
-  getCoreLogs, getCoreStatus, isDesktopRuntime, loadProfile, probeCore, probeLatency, runtimeInfo,
-  saveProfile as persistProfile, setFullTunnel, setSystemProxy, startCore, stopCore, subscribeCore,
+  getCoreLogs, getCoreStatus, isDesktopRuntime, loadProfile, probeCore, runtimeInfo,
+  saveProfile as persistProfile, subscribeCore,
 } from "@/core/api";
 import { withNormalizedEndpoint } from "@/core/endpoint";
 import {
@@ -21,21 +19,18 @@ import {
   type CoreSnapshot,
 } from "@/types";
 
-// NextVPN runs as a headless VPS server — no tray icons, no OS UAC elevation.
-// This flag gates every feature that only makes sense on a desktop installation.
-const IS_VPS_MODE = true;
-
-const ACTIVE = new Set(["starting", "scanning", "connecting", "connected", "reconnecting"]);
 const MODE_KEY = "nextvpn.mode";
 const appVersion = import.meta.env.VITE_APP_VERSION || "unknown";
 
-type Mode = "simple" | "advanced";
+type Mode = "dashboard" | "socks5" | "advanced";
 type Toast = { title: string; message: string; error?: boolean };
 
 export default function App() {
-  const [mode, setMode] = useState<Mode>(
-    () => (localStorage.getItem(MODE_KEY) as Mode | null) ?? "simple",
-  );
+  const [mode, setMode] = useState<Mode>(() => {
+    const saved = localStorage.getItem(MODE_KEY);
+    if (saved === "socks5" || saved === "advanced" || saved === "dashboard") return saved;
+    return "dashboard";
+  });
   const [profile, setProfile] = useState<ConnectionProfile>(DEFAULT_PROFILE);
   const [snapshot, setSnapshot] = useState<CoreSnapshot>(IDLE_SNAPSHOT);
   const [probe, setProbe] = useState<CoreProbe>({
@@ -44,7 +39,6 @@ export default function App() {
   const [logs, setLogs] = useState<CoreLogEvent[]>([]);
   const [runtime, setRuntime] = useState("VPS server");
   const [toast, setToast] = useState<Toast | null>(null);
-  const [latency, setLatency] = useState<Sample[]>([]);
   const [palette, setPalette] = useState(false);
   const [jumpTo, setJumpTo] = useState<{ section: SectionId; at: number } | null>(null);
 
@@ -127,55 +121,9 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
-  // Latency chart: sample every SAMPLE_MS while connected
-  useEffect(() => {
-    if (!desktop || snapshot.state !== "connected") {
-      setLatency([]);
-      return;
-    }
-    let disposed = false;
-    let timer = 0;
-
-    const sample = async () => {
-      try {
-        const value = await probeLatency();
-        if (!disposed) setLatency((history) => append(history, value));
-      } catch {
-        if (!disposed) setLatency((history) => append(history, null));
-      }
-      if (!disposed) timer = window.setTimeout(() => void sample(), SAMPLE_MS);
-    };
-    void sample();
-    return () => { disposed = true; window.clearTimeout(timer); };
-  }, [desktop, snapshot.state]);
-
-  // Toggle connection
-  const toggleConnection = useCallback(async () => {
-    try {
-      if (ACTIVE.has(snapshot.state)) {
-        setSnapshot(await stopCore());
-        notify(t("Disconnected"), t("The tunnel stopped cleanly."));
-        return;
-      }
-      const latest = await probeCore(effective);
-      setProbe(latest);
-      if (!latest.available) throw new Error(latest.message);
-      setSnapshot(await startCore(effective));
-    } catch (error) {
-      showError(error);
-    }
-  }, [snapshot.state, effective, notify, showError, t]);
-
-  const toggleRef = useRef(toggleConnection);
-  useEffect(() => { toggleRef.current = toggleConnection; }, [toggleConnection]);
-
-  // Keyboard shortcuts
+  // Keyboard shortcuts (Ctrl+K for search)
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-        event.preventDefault();
-        void toggleRef.current();
-      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setPalette(true);
@@ -203,75 +151,16 @@ export default function App() {
     }
   }, [desktop, profile, effective, notify, showError, t]);
 
-  const applyProfile = useCallback(
-    (patch: Partial<ConnectionProfile>) => {
-      setProfile((current) => {
-        const next = { ...current, ...patch };
-        if (desktop) {
-          void persistProfile(withNormalizedEndpoint(next)).catch(showError);
-        }
-        return next;
-      });
-    },
-    [desktop, showError],
-  );
-
-  const carry: CarryMode = carryFromProfile(profile.systemProxy, profile.fullTunnel);
-
-  const setCarry = useCallback(
-    (next: CarryMode) => {
-      const wantsSystem = next === "system";
-      // Full tunnel (TUN device) is not supported in VPS / headless mode.
-      // Silently fall back to system proxy when someone selects it, and
-      // notify so the choice is not just lost.
-      if (next === "tun" && IS_VPS_MODE) {
-        notify(
-          t("Full tunnel not available"),
-          t("TUN device capture is not supported in VPS mode. Using system proxy instead."),
-          true,
-        );
-        applyProfile({ systemProxy: true, fullTunnel: false });
-        if (ACTIVE.has(snapshot.state)) {
-          void setSystemProxy(true).catch(showError);
-        }
-        return;
-      }
-
-      applyProfile({ systemProxy: wantsSystem, fullTunnel: false });
-      if (!desktop || !ACTIVE.has(snapshot.state)) return;
-
-      void setFullTunnel(false)
-        .then(() => setSystemProxy(wantsSystem))
-        .then((applied) => {
-          if (wantsSystem && applied) {
-            notify(t("System proxy set"), t("Your system proxy now follows the active route."));
-          } else if (next === "app") {
-            notify(t("Proxy cleared"), t("Your system proxy has been put back."));
-          }
-        })
-        .catch(showError);
-    },
-    [applyProfile, desktop, snapshot.state, notify, showError, t],
-  );
-
-  const retryStealth = useCallback(async () => {
-    const next: ConnectionProfile = { ...profile, scanMode: "stealth" };
-    setProfile(next);
-    try {
-      setSnapshot(await startCore(withNormalizedEndpoint(next)));
-    } catch (error) {
-      showError(error);
-    }
-  }, [profile, showError]);
-
   return (
     <div className="flex h-full flex-col bg-background">
-      {/* ── Header ─────────────────────────────────────────────────────── */}
+      {/* ── Header (Clean VPS Gateway Navigation) ──────────────────────── */}
       <header className="flex h-[56px] shrink-0 items-center justify-between border-b bg-[linear-gradient(180deg,hsl(var(--card-top)),hsl(var(--card)))] px-[18px] shadow-[inset_0_1px_0_hsl(0_0%_100%/0.03)]">
         <div className="flex items-center gap-2.5">
           <img src={logo} alt="" className="size-[26px] rounded-[7px]" />
           <span className="text-[14.5px] font-semibold tracking-tight">NextVPN</span>
-          <StateChip snapshot={snapshot} />
+          <span className="rounded bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary border border-primary/20">
+            VPS Gateway
+          </span>
         </div>
         <div className="flex items-center gap-2.5">
           <button
@@ -289,64 +178,34 @@ export default function App() {
           </button>
           <Tabs value={mode} onValueChange={(value) => setMode(value as Mode)}>
             <TabsList className="h-8">
-              <TabsTrigger value="simple" className="px-3 py-1 text-[13px]">{t("Simple")}</TabsTrigger>
-              <TabsTrigger value="advanced" className="px-3 py-1 text-[13px]">{t("Advanced")}</TabsTrigger>
+              <TabsTrigger value="dashboard" className="px-3 py-1 text-[13px] flex items-center gap-1.5">
+                <Activity className="size-3.5" />
+                <span>运行概览</span>
+              </TabsTrigger>
+              <TabsTrigger value="socks5" className="px-3 py-1 text-[13px] flex items-center gap-1.5">
+                <Server className="size-3.5" />
+                <span>SOCKS5 管理</span>
+              </TabsTrigger>
+              <TabsTrigger value="advanced" className="px-3 py-1 text-[13px] flex items-center gap-1.5">
+                <Settings2 className="size-3.5" />
+                <span>底层设置</span>
+              </TabsTrigger>
             </TabsList>
           </Tabs>
-          <Button variant="ghost" size="icon" aria-label={t("Advanced settings")} onClick={() => setMode("advanced")}>
-            <Settings2 />
-          </Button>
         </div>
       </header>
 
-      {/* ── Kill-switch warning banner ─────────────────────────────────── */}
-      {snapshot.blocking ? (
-        <div className="flex shrink-0 items-center gap-3 border-b border-warning/30 bg-warning/[0.09] px-[18px] py-2.5">
-          <ShieldAlert className="size-4 shrink-0 text-warning" />
-          <div className="min-w-0 flex-1">
-            <div className="text-[12.5px] font-semibold text-warning">{t("Traffic is blocked, not broken")}</div>
-            <div className="truncate text-[11.5px] text-muted-foreground">
-              {snapshot.statusMessage ??
-                t("The tunnel is down and your system proxy still points at it, so nothing leaves in the clear.")}
-            </div>
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="shrink-0"
-            onClick={async () => {
-              try {
-                setSnapshot(await stopCore());
-                notify(t("Connection restored"), t("Your system proxy has been put back."));
-              } catch (error) {
-                showError(error);
-              }
-            }}
-          >
-            {t("Restore my connection")}
-          </Button>
-        </div>
-      ) : null}
-
       {/* ── Main content ───────────────────────────────────────────────── */}
-      <main className="min-h-0 flex-1">
-        {mode === "simple" ? (
-          <Simple
-            snapshot={snapshot}
-            profile={profile}
-            probe={probe}
-            carry={carry}
-            latency={latency}
-            onCarry={setCarry}
-            onToggle={() => void toggleConnection()}
-            onAdvanced={(section) => {
-              setMode("advanced");
-              if (section) setJumpTo({ section: section as SectionId, at: Date.now() });
-            }}
-            onRetryStealth={() => void retryStealth()}
-            onReport={() => setMode("advanced")}
-            onProfile={applyProfile}
+      <main className="min-h-0 flex-1 overflow-y-auto">
+        {mode === "dashboard" ? (
+          <SocksDashboard
+            onManageClick={() => setMode("socks5")}
             onToast={notify}
+          />
+        ) : mode === "socks5" ? (
+          <SocksManager
+            onToast={notify}
+            onViewDashboard={() => setMode("dashboard")}
           />
         ) : (
           <Advanced
@@ -402,38 +261,6 @@ export default function App() {
         </div>
       ) : null}
     </div>
-  );
-}
-
-// ── State chip ────────────────────────────────────────────────────────────────
-
-function StateChip({ snapshot }: { snapshot: CoreSnapshot }) {
-  if (snapshot.state === "connected")
-    return (
-      <span className="ms-1.5 inline-flex h-[22px] items-center gap-1.5 rounded-full border border-primary/30 bg-primary/[0.13] px-2.5 text-[11.5px] font-semibold text-primary">
-        <span className="size-1.5 rounded-full bg-current" />
-        Connected
-      </span>
-    );
-  if (snapshot.state === "error")
-    return (
-      <span className="ms-1.5 inline-flex h-[22px] items-center gap-1.5 rounded-full border border-destructive/40 bg-destructive/10 px-2.5 text-[11.5px] font-semibold text-destructive">
-        <span className="size-1.5 rounded-full bg-current" />
-        Stopped
-      </span>
-    );
-  if (!ACTIVE.has(snapshot.state))
-    return (
-      <span className="ms-1.5 inline-flex h-[22px] items-center gap-1.5 rounded-full border bg-muted px-2.5 text-[11.5px] font-semibold text-muted-foreground">
-        <span className="size-1.5 rounded-full bg-current" />
-        Not connected
-      </span>
-    );
-  return (
-    <span className="ms-1.5 inline-flex h-[22px] items-center gap-1.5 rounded-full border border-warning/30 bg-warning/[0.13] px-2.5 text-[11.5px] font-semibold text-warning">
-      <span className="size-1.5 animate-pulse rounded-full bg-current" />
-      {snapshot.attempt > 0 ? `Searching · ${snapshot.attempt} of ${snapshot.maxAttempts}` : "Searching"}
-    </span>
   );
 }
 

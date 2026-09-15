@@ -1271,6 +1271,7 @@ mod tests {
             tor: Arc::new(crate::tor::Tor::new()),
             proton: Arc::new(Proton::new()),
             windscribe: Arc::new(crate::windscribe::Windscribe::new()),
+            socks_mgr: Arc::new(crate::socks_instance::SocksInstanceManager::new()),
             lan_door: Arc::new(crate::lan_share::LanDoor::default()),
             config_dir: std::path::PathBuf::from("/tmp"),
             data_dir: std::path::PathBuf::from("/tmp"),

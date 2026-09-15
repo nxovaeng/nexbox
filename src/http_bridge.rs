@@ -241,19 +241,62 @@ pub(crate) fn socks5_connect(
     port: u16,
     timeout: Duration,
 ) -> io::Result<TcpStream> {
+    socks5_connect_with_auth(socks, host, port, timeout, None)
+}
+
+pub(crate) fn socks5_connect_with_auth(
+    socks: SocketAddr,
+    host: &str,
+    port: u16,
+    timeout: Duration,
+    auth: Option<(&str, &str)>,
+) -> io::Result<TcpStream> {
     let mut upstream = TcpStream::connect_timeout(&socks, timeout)?;
     upstream.set_read_timeout(Some(timeout))?;
     upstream.set_nodelay(true)?;
 
-    // Greeting: SOCKS5, one method, "no authentication".
-    upstream.write_all(&[0x05, 0x01, 0x00])?;
-    let mut greeting = [0_u8; 2];
-    upstream.read_exact(&mut greeting)?;
-    if greeting != [0x05, 0x00] {
-        return Err(io::Error::new(
-            io::ErrorKind::ConnectionRefused,
-            "the SOCKS5 listener refused an unauthenticated connection",
-        ));
+    if let Some((user, pass)) = auth {
+        // Method 0x02: Username/Password authentication
+        upstream.write_all(&[0x05, 0x01, 0x02])?;
+        let mut greeting = [0_u8; 2];
+        upstream.read_exact(&mut greeting)?;
+        if greeting != [0x05, 0x02] {
+            return Err(io::Error::new(
+                io::ErrorKind::ConnectionRefused,
+                "the SOCKS5 listener refused username/password authentication",
+            ));
+        }
+
+        // Subnegotiation RFC 1929
+        let u_bytes = user.as_bytes();
+        let p_bytes = pass.as_bytes();
+        let mut subneg = Vec::with_capacity(3 + u_bytes.len() + p_bytes.len());
+        subneg.push(0x01); // version
+        subneg.push(u_bytes.len() as u8);
+        subneg.extend_from_slice(u_bytes);
+        subneg.push(p_bytes.len() as u8);
+        subneg.extend_from_slice(p_bytes);
+        upstream.write_all(&subneg)?;
+
+        let mut auth_resp = [0_u8; 2];
+        upstream.read_exact(&mut auth_resp)?;
+        if auth_resp[1] != 0x00 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "SOCKS5 authentication failed (invalid username or password)",
+            ));
+        }
+    } else {
+        // Greeting: SOCKS5, one method, "no authentication".
+        upstream.write_all(&[0x05, 0x01, 0x00])?;
+        let mut greeting = [0_u8; 2];
+        upstream.read_exact(&mut greeting)?;
+        if greeting != [0x05, 0x00] {
+            return Err(io::Error::new(
+                io::ErrorKind::ConnectionRefused,
+                "the SOCKS5 listener refused an unauthenticated connection",
+            ));
+        }
     }
 
     let host_bytes = host.as_bytes();

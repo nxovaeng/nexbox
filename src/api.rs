@@ -5,6 +5,7 @@ use axum::{
     Json, Router,
 };
 use futures_core::stream::Stream;
+use serde::Deserialize;
 use serde_json::json;
 use std::convert::Infallible;
 
@@ -1290,6 +1291,16 @@ pub fn api_router() -> Router<AppContext> {
         .route("/api/upload_block_rules", post(handle_upload_block_rules))
         .route("/api/upload_routes_file", post(handle_upload_routes_file))
         .route("/api/clear_routing_list", post(handle_clear_routing_list))
+        // Multi-instance SOCKS5 management
+        .route("/api/socks_instances", get(handle_list_socks_instances).post(handle_create_socks_instance))
+        .route("/api/socks_instances/update", post(handle_update_socks_instance))
+        .route("/api/socks_instances/delete", post(handle_delete_socks_instance))
+        .route("/api/socks_instances/start", post(handle_start_socks_instance))
+        .route("/api/socks_instances/stop", post(handle_stop_socks_instance))
+        .route("/api/socks_instances/restart", post(handle_restart_socks_instance))
+        .route("/api/socks_instances/test_connectivity", post(handle_test_socks_connectivity))
+        .route("/api/socks_instances/test_speed", post(handle_test_socks_speed))
+        .route("/api/socks_instances/set_autostart", post(handle_set_socks_autostart))
         .layer(axum::extract::DefaultBodyLimit::max(250 * 1024 * 1024))
 }
 
@@ -1391,3 +1402,112 @@ async fn handle_warpscout_scan(
         Err(e)     => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))).into_response(),
     }
 }
+
+// ── Multi-instance SOCKS5 Handlers ──────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct InstanceIdPayload {
+    id: String,
+}
+
+#[derive(Deserialize)]
+struct SetAutostartPayload {
+    id: String,
+    autostart: bool,
+}
+
+async fn handle_list_socks_instances(State(ctx): State<AppContext>) -> impl IntoResponse {
+    let list = ctx.socks_mgr().list_instances().await;
+    Json(json!(list)).into_response()
+}
+
+async fn handle_create_socks_instance(
+    State(ctx): State<AppContext>,
+    Json(payload): Json<crate::socks_instance::SocksInstanceConfig>,
+) -> impl IntoResponse {
+    match ctx.socks_mgr().create_instance(payload).await {
+        Ok(view) => Json(json!(view)).into_response(),
+        Err(e) => (axum::http::StatusCode::BAD_REQUEST, Json(json!({"error": e}))).into_response(),
+    }
+}
+
+async fn handle_update_socks_instance(
+    State(ctx): State<AppContext>,
+    Json(payload): Json<crate::socks_instance::SocksInstanceConfig>,
+) -> impl IntoResponse {
+    match ctx.socks_mgr().update_instance(payload).await {
+        Ok(view) => Json(json!(view)).into_response(),
+        Err(e) => (axum::http::StatusCode::BAD_REQUEST, Json(json!({"error": e}))).into_response(),
+    }
+}
+
+async fn handle_delete_socks_instance(
+    State(ctx): State<AppContext>,
+    Json(payload): Json<InstanceIdPayload>,
+) -> impl IntoResponse {
+    match ctx.socks_mgr().delete_instance(&payload.id).await {
+        Ok(_) => Json(json!({"success": true})).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))).into_response(),
+    }
+}
+
+async fn handle_start_socks_instance(
+    State(ctx): State<AppContext>,
+    Json(payload): Json<InstanceIdPayload>,
+) -> impl IntoResponse {
+    match ctx.socks_mgr().start_instance(&ctx, &payload.id).await {
+        Ok(status) => Json(json!(status)).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))).into_response(),
+    }
+}
+
+async fn handle_stop_socks_instance(
+    State(ctx): State<AppContext>,
+    Json(payload): Json<InstanceIdPayload>,
+) -> impl IntoResponse {
+    match ctx.socks_mgr().stop_instance(&payload.id).await {
+        Ok(status) => Json(json!(status)).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))).into_response(),
+    }
+}
+
+async fn handle_restart_socks_instance(
+    State(ctx): State<AppContext>,
+    Json(payload): Json<InstanceIdPayload>,
+) -> impl IntoResponse {
+    match ctx.socks_mgr().restart_instance(&ctx, &payload.id).await {
+        Ok(status) => Json(json!(status)).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))).into_response(),
+    }
+}
+
+async fn handle_test_socks_connectivity(
+    State(ctx): State<AppContext>,
+    Json(payload): Json<InstanceIdPayload>,
+) -> impl IntoResponse {
+    match ctx.socks_mgr().test_connectivity(&payload.id).await {
+        Ok(result) => Json(json!(result)).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))).into_response(),
+    }
+}
+
+async fn handle_test_socks_speed(
+    State(ctx): State<AppContext>,
+    Json(payload): Json<InstanceIdPayload>,
+) -> impl IntoResponse {
+    match ctx.socks_mgr().test_speed(&payload.id).await {
+        Ok(result) => Json(json!(result)).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))).into_response(),
+    }
+}
+
+async fn handle_set_socks_autostart(
+    State(ctx): State<AppContext>,
+    Json(payload): Json<SetAutostartPayload>,
+) -> impl IntoResponse {
+    match ctx.socks_mgr().set_autostart(&payload.id, payload.autostart).await {
+        Ok(_) => Json(json!({"success": true, "autostart": payload.autostart})).into_response(),
+        Err(e) => (axum::http::StatusCode::BAD_REQUEST, Json(json!({"error": e}))).into_response(),
+    }
+}
+

@@ -13,6 +13,7 @@ mod moat;
 mod proton;
 mod psiphon;
 mod scanner;
+mod socks_instance;
 mod tor;
 mod warpscout;
 mod windscribe;
@@ -23,6 +24,7 @@ use core_supervisor::CoreSupervisor;
 use lan_share::LanDoor;
 use proton::Proton;
 use psiphon::Psiphon;
+use socks_instance::SocksInstanceManager;
 use tor::Tor;
 use windscribe::Windscribe;
 
@@ -33,6 +35,9 @@ use tower_http::cors::CorsLayer;
 
 #[tokio::main]
 async fn main() {
+    // Install ring crypto provider for rustls (required in rustls 0.23)
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let base_dir = if cwd.join("data").is_dir() {
         cwd.clone()
@@ -76,6 +81,7 @@ async fn main() {
         proton: Arc::new(Proton::new()),
         windscribe: Arc::new(Windscribe::new()),
         lan_door: Arc::new(LanDoor::default()),
+        socks_mgr: Arc::new(SocksInstanceManager::new()),
         config_dir,
         data_dir,
         resource_dir,
@@ -85,6 +91,10 @@ async fn main() {
 
     // Load persisted Windscribe accounts and servers
     ctx.windscribe().load_initial_data(&ctx).await;
+
+    // Initialize multi-instance SOCKS5 manager and trigger autostart
+    ctx.socks_mgr().init(&ctx).await;
+    ctx.socks_mgr().trigger_autostart(ctx.clone());
 
     // Start the background status pump
     core_supervisor::start_pump(ctx.clone(), &ctx.supervisor());
@@ -119,6 +129,7 @@ async fn main() {
                 std::process::exit(130);
             });
             // Kill any running child processes immediately
+            ctx.socks_mgr().shutdown_all();
             ctx.supervisor().shutdown(&ctx);
             ctx.proton().stop().await;
             std::process::exit(0);
