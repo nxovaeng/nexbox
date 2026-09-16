@@ -34,10 +34,8 @@ async fn handle_core_logs(State(ctx): State<AppContext>) -> impl IntoResponse {
 }
 
 async fn handle_load_profile(State(ctx): State<AppContext>) -> impl IntoResponse {
-    match crate::core_supervisor::load_profile(ctx).await {
-        Ok(profile) => Json(json!(profile)),
-        Err(e) => Json(json!({"error": e})),
-    }
+    let active = ctx.aether_profile_mgr().get_active().await;
+    Json(json!(active.to_core_profile()))
 }
 
 async fn handle_cancel_scan(State(ctx): State<AppContext>) -> impl IntoResponse {
@@ -210,12 +208,12 @@ async fn handle_start_core(State(ctx): State<AppContext>, Json(payload): Json<St
 }
 
 async fn handle_save_profile(State(ctx): State<AppContext>, Json(payload): Json<StartCorePayload>) -> impl IntoResponse {
-    let mut profile = payload.profile;
-    if profile.name.is_empty() {
-        profile.name = crate::core_supervisor::active_profile_id(&ctx);
-    }
-    match crate::core_supervisor::save_profile(ctx, profile).await {
-        Ok(profile) => Json(json!(profile)),
+    let profile = payload.profile;
+    let active_id = ctx.aether_profile_mgr().get_active().await.id;
+    let id = if profile.name.trim().is_empty() { active_id } else { profile.name.clone() };
+    let cfg = crate::aether_profile::AetherProfileConfig::from_core_profile(&id, &profile, true);
+    match ctx.aether_profile_mgr().save(cfg).await {
+        Ok(saved) => Json(json!(saved.to_core_profile())),
         Err(e) => Json(json!({"error": e})),
     }
 }
@@ -1164,49 +1162,180 @@ struct DuplicateProfilePayload { id: String, name: String }
 struct RenameProfilePayload { id: String, name: String }
 
 async fn handle_list_profiles(State(ctx): State<AppContext>) -> impl IntoResponse {
-    match crate::core_supervisor::list_profiles(&ctx) {
-        Ok(profiles) => Json(json!(profiles)).into_response(),
-        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))).into_response(),
-    }
+    let list = ctx.aether_profile_mgr().list().await;
+    let summaries: Vec<crate::core_supervisor::ProfileSummary> = list.into_iter().map(|p| {
+        crate::core_supervisor::ProfileSummary {
+            id: p.id,
+            name: p.name,
+            protocol: Some(p.protocol),
+            masque_transport: Some(p.masque_transport),
+            endpoint_mode: Some(p.endpoint_mode),
+            peer: p.peer,
+            dns: Some(p.dns),
+            socks_address: Some(p.socks_address),
+            upstream_proxy: None,
+            noize: Some(p.noize),
+            fragment_client_hello: Some(p.fragment_client_hello),
+        }
+    }).collect();
+    Json(json!(summaries)).into_response()
 }
 
 async fn handle_switch_profile(State(ctx): State<AppContext>, Json(payload): Json<SwitchProfilePayload>) -> impl IntoResponse {
-    match crate::core_supervisor::switch_profile(&ctx, payload.id) {
-        Ok(_) => Json(json!({"success": true})).into_response(),
+    match ctx.aether_profile_mgr().set_active(&payload.id).await {
+        Ok(_) => {
+            let _ = ctx.emit("ProfileSwitched", &json!({ "id": payload.id }));
+            Json(json!({"success": true})).into_response()
+        },
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))).into_response(),
     }
 }
 
 async fn handle_delete_profile(State(ctx): State<AppContext>, Json(payload): Json<SwitchProfilePayload>) -> impl IntoResponse {
-    match crate::core_supervisor::delete_profile(&ctx, &payload.id) {
+    match ctx.aether_profile_mgr().delete(&payload.id).await {
         Ok(_) => Json(json!({"success": true})).into_response(),
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))).into_response(),
     }
 }
 
 async fn handle_create_profile(State(ctx): State<AppContext>, Json(payload): Json<CreateProfilePayload>) -> impl IntoResponse {
-    match crate::core_supervisor::create_profile(&ctx, &payload.name) {
-        Ok(summary) => Json(json!(summary)).into_response(),
+    let id = payload.name.trim().to_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect::<String>();
+    let clean_id = id.trim_matches('-').to_string();
+    let final_id = if clean_id.is_empty() { format!("profile-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()) } else { clean_id };
+    let mut cfg = crate::aether_profile::AetherProfileConfig::default();
+    cfg.id = final_id.clone();
+    cfg.name = payload.name;
+    cfg.is_active = false;
+    match ctx.aether_profile_mgr().save(cfg).await {
+        Ok(saved) => {
+            let s = crate::core_supervisor::ProfileSummary {
+                id: saved.id,
+                name: saved.name,
+                protocol: Some(saved.protocol),
+                masque_transport: Some(saved.masque_transport),
+                endpoint_mode: Some(saved.endpoint_mode),
+                peer: saved.peer,
+                dns: Some(saved.dns),
+                socks_address: Some(saved.socks_address),
+                upstream_proxy: None,
+                noize: Some(saved.noize),
+                fragment_client_hello: Some(saved.fragment_client_hello),
+            };
+            Json(json!(s)).into_response()
+        },
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))).into_response(),
     }
 }
 
 async fn handle_duplicate_profile(State(ctx): State<AppContext>, Json(payload): Json<DuplicateProfilePayload>) -> impl IntoResponse {
-    match crate::core_supervisor::duplicate_profile(&ctx, &payload.id, &payload.name) {
-        Ok(summary) => Json(json!(summary)).into_response(),
+    match ctx.aether_profile_mgr().duplicate(&payload.id, &payload.name).await {
+        Ok(saved) => {
+            let s = crate::core_supervisor::ProfileSummary {
+                id: saved.id,
+                name: saved.name,
+                protocol: Some(saved.protocol),
+                masque_transport: Some(saved.masque_transport),
+                endpoint_mode: Some(saved.endpoint_mode),
+                peer: saved.peer,
+                dns: Some(saved.dns),
+                socks_address: Some(saved.socks_address),
+                upstream_proxy: None,
+                noize: Some(saved.noize),
+                fragment_client_hello: Some(saved.fragment_client_hello),
+            };
+            Json(json!(s)).into_response()
+        },
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))).into_response(),
     }
 }
 
 async fn handle_rename_profile(State(ctx): State<AppContext>, Json(payload): Json<RenameProfilePayload>) -> impl IntoResponse {
-    match crate::core_supervisor::rename_profile(&ctx, &payload.id, &payload.name) {
-        Ok(summary) => Json(json!(summary)).into_response(),
+    let mut profile = match ctx.aether_profile_mgr().get(&payload.id).await {
+        Some(p) => p,
+        None => return (axum::http::StatusCode::NOT_FOUND, Json(json!({"error": "Profile not found"}))).into_response(),
+    };
+    profile.name = payload.name;
+    match ctx.aether_profile_mgr().save(profile).await {
+        Ok(saved) => {
+            let s = crate::core_supervisor::ProfileSummary {
+                id: saved.id,
+                name: saved.name,
+                protocol: Some(saved.protocol),
+                masque_transport: Some(saved.masque_transport),
+                endpoint_mode: Some(saved.endpoint_mode),
+                peer: saved.peer,
+                dns: Some(saved.dns),
+                socks_address: Some(saved.socks_address),
+                upstream_proxy: None,
+                noize: Some(saved.noize),
+                fragment_client_hello: Some(saved.fragment_client_hello),
+            };
+            Json(json!(s)).into_response()
+        },
         Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))).into_response(),
     }
 }
 
 async fn handle_active_profile_id(State(ctx): State<AppContext>) -> impl IntoResponse {
-    Json(json!({"id": crate::core_supervisor::active_profile_id(&ctx)}))
+    let active = ctx.aether_profile_mgr().get_active().await;
+    Json(json!({"id": active.id}))
+}
+
+// ── Dedicated Aether Endpoints ─────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+struct GetAetherProfileQuery {
+    id: Option<String>,
+}
+
+async fn handle_aether_list_profiles(State(ctx): State<AppContext>) -> impl IntoResponse {
+    let list = ctx.aether_profile_mgr().list().await;
+    Json(json!(list)).into_response()
+}
+
+async fn handle_aether_get_profile(State(ctx): State<AppContext>, axum::extract::Query(q): axum::extract::Query<GetAetherProfileQuery>) -> impl IntoResponse {
+    let profile = match q.id {
+        Some(id) => {
+            if let Some(p) = ctx.aether_profile_mgr().get(&id).await {
+                p
+            } else {
+                ctx.aether_profile_mgr().get_active().await
+            }
+        }
+        None => ctx.aether_profile_mgr().get_active().await,
+    };
+    Json(json!(profile)).into_response()
+}
+
+async fn handle_aether_save_profile(State(ctx): State<AppContext>, Json(payload): Json<crate::aether_profile::AetherProfileConfig>) -> impl IntoResponse {
+    match ctx.aether_profile_mgr().save(payload).await {
+        Ok(saved) => Json(json!(saved)).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))).into_response(),
+    }
+}
+
+async fn handle_aether_duplicate_profile(State(ctx): State<AppContext>, Json(payload): Json<DuplicateProfilePayload>) -> impl IntoResponse {
+    match ctx.aether_profile_mgr().duplicate(&payload.id, &payload.name).await {
+        Ok(saved) => Json(json!(saved)).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))).into_response(),
+    }
+}
+
+async fn handle_aether_delete_profile(State(ctx): State<AppContext>, Json(payload): Json<SwitchProfilePayload>) -> impl IntoResponse {
+    match ctx.aether_profile_mgr().delete(&payload.id).await {
+        Ok(_) => Json(json!({"success": true})).into_response(),
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))).into_response(),
+    }
+}
+
+async fn handle_aether_set_active(State(ctx): State<AppContext>, Json(payload): Json<SwitchProfilePayload>) -> impl IntoResponse {
+    match ctx.aether_profile_mgr().set_active(&payload.id).await {
+        Ok(active) => {
+            let _ = ctx.emit("ProfileSwitched", &json!({ "id": payload.id }));
+            Json(json!(active)).into_response()
+        },
+        Err(e) => (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e}))).into_response(),
+    }
 }
 
 pub fn api_router() -> Router<AppContext> {
@@ -1244,6 +1373,12 @@ pub fn api_router() -> Router<AppContext> {
         .route("/api/duplicate_profile", post(handle_duplicate_profile))
         .route("/api/rename_profile", post(handle_rename_profile))
         .route("/api/active_profile_id", get(handle_active_profile_id))
+        // Aether / Warp Profiles
+        .route("/api/aether/profiles", get(handle_aether_list_profiles))
+        .route("/api/aether/profile", get(handle_aether_get_profile).post(handle_aether_save_profile))
+        .route("/api/aether/duplicate", post(handle_aether_duplicate_profile))
+        .route("/api/aether/delete", post(handle_aether_delete_profile))
+        .route("/api/aether/set_active", post(handle_aether_set_active))
         .route("/api/save_report", post(handle_save_report))
         .route("/api/scan_endpoints", post(handle_scan_endpoints))
         .route("/api/test_endpoint", post(handle_test_endpoint))

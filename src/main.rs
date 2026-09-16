@@ -1,3 +1,4 @@
+mod aether_profile;
 mod api;
 mod app_context;
 mod carrier;
@@ -6,6 +7,7 @@ mod core_supervisor;
 mod downloader;
 mod embedded;
 mod http_bridge;
+mod ip_checker;
 mod routing_rules;
 mod lan_share;
 mod latency;
@@ -18,6 +20,7 @@ mod tor;
 mod warpscout;
 mod windscribe;
 
+use aether_profile::AetherProfileManager;
 use app_context::AppContext;
 use chain::Chain;
 use core_supervisor::CoreSupervisor;
@@ -82,12 +85,16 @@ async fn main() {
         windscribe: Arc::new(Windscribe::new()),
         lan_door: Arc::new(LanDoor::default()),
         socks_mgr: Arc::new(SocksInstanceManager::new()),
+        aether_profile_mgr: Arc::new(AetherProfileManager::new()),
         config_dir,
         data_dir,
         resource_dir,
         log_dir,
         event_tx: event_tx.clone(),
     };
+
+    // Load Aether configuration profiles from config/aether_profiles.json
+    ctx.aether_profile_mgr().init(&ctx).await;
 
     // Load persisted Windscribe accounts and servers
     ctx.windscribe().load_initial_data(&ctx).await;

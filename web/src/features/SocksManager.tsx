@@ -23,6 +23,8 @@ import {
   stopSocksInstance,
   testSocksConnectivity,
   setSocksAutostart,
+  getAetherProfiles,
+  type AetherProfileConfig,
   type SocksInstanceConfig,
   type SocksInstanceView,
 } from "@/core/api";
@@ -52,11 +54,19 @@ export function SocksManager({ onToast, onViewDashboard }: SocksManagerProps) {
   const [formUpstream, setFormUpstream] = useState<SocksUpstreamType>("warp");
   const [formCountry, setFormCountry] = useState("JP");
   const [formCustomAddress, setFormCustomAddress] = useState("127.0.0.1:1080");
+  const [formProfileId, setFormProfileId] = useState("default");
+  const [aetherProfiles, setAetherProfiles] = useState<AetherProfileConfig[]>([]);
 
   const refresh = useCallback(async () => {
     try {
-      const list = await listSocksInstances();
+      const [list, plist] = await Promise.all([
+        listSocksInstances(),
+        getAetherProfiles().catch(() => []),
+      ]);
       setInstances(list);
+      if (plist && plist.length > 0) {
+        setAetherProfiles(plist);
+      }
     } catch (e) {
       console.error("Failed to load instances:", e);
     } finally {
@@ -89,6 +99,7 @@ export function SocksManager({ onToast, onViewDashboard }: SocksManagerProps) {
     setFormUpstream("warp");
     setFormCountry("JP");
     setFormCustomAddress("127.0.0.1:1080");
+    setFormProfileId(aetherProfiles[0]?.id || "default");
     setModalOpen(true);
   };
 
@@ -105,6 +116,7 @@ export function SocksManager({ onToast, onViewDashboard }: SocksManagerProps) {
     setFormUpstream(inst.upstreamType);
     setFormCountry(inst.upstreamConfig?.country || inst.upstreamConfig?.region || "JP");
     setFormCustomAddress(inst.upstreamConfig?.address || "127.0.0.1:1080");
+    setFormProfileId(inst.upstreamConfig?.profileId || aetherProfiles[0]?.id || "default");
     setModalOpen(true);
   };
 
@@ -123,7 +135,9 @@ export function SocksManager({ onToast, onViewDashboard }: SocksManagerProps) {
     }
 
     let upstreamConfig: Record<string, any> = {};
-    if (formUpstream === "proton" || formUpstream === "windscribe") {
+    if (formUpstream === "warp") {
+      upstreamConfig = { profileId: formProfileId || "default" };
+    } else if (formUpstream === "proton" || formUpstream === "windscribe") {
       upstreamConfig = { country: formCountry.trim().toUpperCase() };
     } else if (formUpstream === "psiphon") {
       upstreamConfig = { region: formCountry.trim().toUpperCase() };
@@ -350,7 +364,14 @@ export function SocksManager({ onToast, onViewDashboard }: SocksManagerProps) {
                         <td className="px-4 py-3.5 whitespace-nowrap">
                           <span className="inline-flex items-center gap-1 rounded bg-accent/60 px-2 py-0.5 text-[11px] font-medium uppercase text-muted-foreground">
                             {inst.upstreamType}
-                            {inst.upstreamConfig?.country ? ` (${inst.upstreamConfig.country})` : ""}
+                            {inst.upstreamType === "warp"
+                              ? ` (${(() => {
+                                  const p = aetherProfiles.find((x) => x.id === inst.upstreamConfig?.profileId);
+                                  return p ? p.name : inst.upstreamConfig?.profileId || "默认方案";
+                                })()})`
+                              : inst.upstreamConfig?.country
+                              ? ` (${inst.upstreamConfig.country})`
+                              : ""}
                           </span>
                         </td>
 
@@ -519,6 +540,50 @@ export function SocksManager({ onToast, onViewDashboard }: SocksManagerProps) {
               </div>
 
               {/* Upstream Config params */}
+              {formUpstream === "warp" && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="font-semibold text-foreground text-xs block">
+                      选择 Aether (WARP) 方案 (Profile)
+                    </label>
+                    <span className="text-[11px] text-muted-foreground">
+                      可在“底层设置”中调整方案参数
+                    </span>
+                  </div>
+                  <select
+                    value={formProfileId}
+                    onChange={(e) => setFormProfileId(e.target.value)}
+                    className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-xs font-medium shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    {aetherProfiles.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.protocol.toUpperCase()} · {p.noize === "off" ? "无混流" : `混流: ${p.noize}`} · {p.fragmentClientHello ? "分片开启" : "分片关闭"})
+                      </option>
+                    ))}
+                    {aetherProfiles.length === 0 && (
+                      <option value="default">默认直连方案 (Default)</option>
+                    )}
+                  </select>
+                  {(() => {
+                    const sel = aetherProfiles.find((p) => p.id === formProfileId);
+                    if (!sel) return null;
+                    return (
+                      <div className="rounded-md bg-muted/40 border border-border/50 p-2 text-[11px] text-muted-foreground flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-foreground">{sel.name}</span>
+                        <span>·</span>
+                        <span>协议: {sel.protocol.toUpperCase()} ({sel.masqueTransport})</span>
+                        <span>·</span>
+                        <span>混流: {sel.noize}</span>
+                        <span>·</span>
+                        <span>分片: {sel.fragmentClientHello ? `开启 (${sel.fragmentSize})` : "关闭"}</span>
+                        <span>·</span>
+                        <span>优选: {sel.scanMode}</span>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
               {(formUpstream === "proton" || formUpstream === "windscribe" || formUpstream === "psiphon") && (
                 <div>
                   <label className="font-semibold text-foreground mb-1 block">目标出口国家 / 地区代码</label>

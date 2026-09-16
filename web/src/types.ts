@@ -495,6 +495,7 @@ export interface ConnectivityResult {
   org?: string | null;
   latencyMs?: number | null;
   error?: string | null;
+  provider?: string | null;
   checkedAt: number;
 }
 

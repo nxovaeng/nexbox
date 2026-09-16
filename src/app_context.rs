@@ -23,6 +23,7 @@ pub struct AppContext {
     pub windscribe: Arc<Windscribe>,
     pub lan_door: Arc<LanDoor>,
     pub socks_mgr: Arc<SocksInstanceManager>,
+    pub aether_profile_mgr: Arc<crate::aether_profile::AetherProfileManager>,
     
     pub config_dir: PathBuf,
     pub data_dir: PathBuf,
@@ -77,4 +78,5 @@ impl AppContext {
     pub fn proton(&self) -> Arc<Proton> { self.proton.clone() }
     pub fn windscribe(&self) -> Arc<Windscribe> { self.windscribe.clone() }
     pub fn socks_mgr(&self) -> Arc<SocksInstanceManager> { self.socks_mgr.clone() }
+    pub fn aether_profile_mgr(&self) -> Arc<crate::aether_profile::AetherProfileManager> { self.aether_profile_mgr.clone() }
 }

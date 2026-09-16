@@ -228,6 +228,68 @@ export interface ProfileSummary {
   dns?: string[];
   socksAddress?: string;
   upstreamProxy?: string;
+  noize?: string;
+  fragmentClientHello?: boolean;
+}
+
+export interface AetherProfileConfig {
+  id: string;
+  name: string;
+  description?: string | null;
+  protocol: "masque" | "wg" | "gool";
+  masqueTransport: "h2" | "h3";
+  scanMode: "turbo" | "balanced" | "thorough" | "stealth" | "ironclad";
+  ipFamily: "both" | "v4" | "v6";
+  socksAddress: string;
+  noize: "off" | "light" | "balanced" | "firewall" | "gfw" | "aggressive";
+  fragmentClientHello: boolean;
+  fragmentSize: string;
+  fragmentDelay: string;
+  endpointMode: "automatic" | "custom-first" | "custom-only";
+  peer?: string | null;
+  dns: string[];
+  keepaliveSecs: number;
+  quickReconnect: boolean;
+  dataCheck: boolean;
+  logLevel: string;
+  isActive: boolean;
+}
+
+export async function getAetherProfiles(): Promise<AetherProfileConfig[]> {
+  const res = await fetch(`${API_BASE}/aether/profiles`);
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as AetherProfileConfig[];
+  } catch {
+    throw new Error(text);
+  }
+}
+
+export async function getAetherProfile(id?: string): Promise<AetherProfileConfig> {
+  const url = id ? `${API_BASE}/aether/profile?id=${encodeURIComponent(id)}` : `${API_BASE}/aether/profile`;
+  const res = await fetch(url);
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as AetherProfileConfig;
+  } catch {
+    throw new Error(text);
+  }
+}
+
+export async function saveAetherProfile(profile: AetherProfileConfig): Promise<AetherProfileConfig> {
+  return apiInvoke("aether/profile", profile);
+}
+
+export async function duplicateAetherProfile(id: string, name: string): Promise<AetherProfileConfig> {
+  return apiInvoke("aether/duplicate", { id, name });
+}
+
+export async function deleteAetherProfile(id: string): Promise<void> {
+  await apiInvoke("aether/delete", { id });
+}
+
+export async function setAetherActiveProfile(id: string): Promise<AetherProfileConfig> {
+  return apiInvoke("aether/set_active", { id });
 }
 
 export async function listProfiles(): Promise<ProfileSummary[]> {

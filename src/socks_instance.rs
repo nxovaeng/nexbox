@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -30,7 +30,6 @@ use crate::http_bridge::socks5_connect_with_auth;
 
 const CONFIG_FILENAME: &str = "socks_instances.json";
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
-const PROBE_TIMEOUT: Duration = Duration::from_secs(12);
 const SPEED_TIMEOUT: Duration = Duration::from_secs(30);
 const SPEED_BYTES: usize = 5_000_000; // 5 MB test payload
 
@@ -87,6 +86,8 @@ pub struct ConnectivityResult {
     pub latency_ms: Option<f64>,
     pub error: Option<String>,
     pub checked_at: u64,
+    #[serde(default)]
+    pub provider: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -561,35 +562,72 @@ impl SocksInstanceManager {
     async fn prepare_upstream(&self, app: &AppContext, cfg: &SocksInstanceConfig) -> Result<(SocketAddr, Option<Child>), String> {
         match cfg.upstream_type {
             UpstreamType::Warp => {
-                // If Aether core is already connected, forward to it
-                if let Some(socks_str) = app.supervisor().connected_socks() {
-                    if let Ok(addr) = socks_str.parse::<SocketAddr>() {
-                        return Ok((addr, None));
-                    }
-                }
-                // If mihomo chain is running, forward to it
-                if let Some(addr) = app.chain().address() {
-                    return Ok((addr, None));
-                }
-                // Fallback default Aether mixed port if listening
-                let default_socks = SocketAddr::from((Ipv4Addr::LOCALHOST, 1820));
-                if TcpStream::connect_timeout(&default_socks, Duration::from_millis(500)).is_ok() {
-                    return Ok((default_socks, None));
+                let profile_id = cfg.upstream_config.get("profileId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("default");
+
+                // Look up profile in AetherProfileManager
+                let aether_cfg = match app.aether_profile_mgr().get(profile_id).await {
+                    Some(c) => c,
+                    None => app.aether_profile_mgr().get_active().await,
+                };
+                let core_profile = aether_cfg.to_core_profile();
+                let target_addr: SocketAddr = core_profile.socks_address.parse()
+                    .unwrap_or_else(|_| SocketAddr::from((Ipv4Addr::LOCALHOST, 1819)));
+
+                // 1. If target socks address is already listening, forward to it
+                if TcpStream::connect_timeout(&target_addr, Duration::from_millis(300)).is_ok() {
+                    return Ok((target_addr, None));
                 }
 
-                // If not running, attempt starting core with active profile
-                let profile = crate::core_supervisor::load_profile(app.clone()).await.unwrap_or_else(|_| crate::core_supervisor::CoreProfile::default());
-                match crate::core_supervisor::start_core(app.clone(), app.supervisor(), profile).await {
+                // 2. If Aether core supervisor is connected and bound to this address, forward to it
+                if let Some(socks_str) = app.supervisor().connected_socks() {
+                    if let Ok(addr) = socks_str.parse::<SocketAddr>() {
+                        if addr == target_addr {
+                            return Ok((addr, None));
+                        }
+                    }
+                }
+
+                // 3. Try starting Aether core via supervisor if idle
+                let start_res = crate::core_supervisor::start_core(app.clone(), app.supervisor(), core_profile.clone()).await;
+                match start_res {
                     Ok(snap) => {
                         if let Ok(addr) = snap.socks_address.parse::<SocketAddr>() {
                             return Ok((addr, None));
                         }
+                        Ok((target_addr, None))
                     }
-                    Err(e) => {
-                        return Err(format!("Could not start Warp engine: {e}"));
+                    Err(supervisor_err) => {
+                        // Supervisor might already be running another session; fallback to standalone process
+                        if let Ok((core_path, aether_dir, id_path)) = crate::core_supervisor::core_paths(app, &core_profile) {
+                            let mut cmd = std::process::Command::new(&core_path);
+                            cmd.args(core_profile.args(&id_path))
+                                .current_dir(aether_dir)
+                                .stdin(std::process::Stdio::null())
+                                .stdout(std::process::Stdio::null())
+                                .stderr(std::process::Stdio::null());
+                            match cmd.spawn() {
+                                Ok(child) => {
+                                    // Wait up to 5s for target_addr to accept connections
+                                    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                                    while std::time::Instant::now() < deadline {
+                                        if TcpStream::connect_timeout(&target_addr, Duration::from_millis(150)).is_ok() {
+                                            return Ok((target_addr, Some(child)));
+                                        }
+                                        tokio::time::sleep(Duration::from_millis(150)).await;
+                                    }
+                                    return Ok((target_addr, Some(child)));
+                                }
+                                Err(e) => {
+                                    return Err(format!("Could not start Warp engine with profile '{}': supervisor ({supervisor_err}), standalone spawn ({e})", aether_cfg.name));
+                                }
+                            }
+                        } else {
+                            return Err(format!("Could not start Warp engine with profile '{}': {supervisor_err}", aether_cfg.name));
+                        }
                     }
                 }
-                Ok((default_socks, None))
             }
             UpstreamType::Proton => {
                 // Check if Proton standalone is already active
@@ -719,13 +757,8 @@ impl SocksInstanceManager {
         }
 
         let socks_addr = SocketAddr::from((Ipv4Addr::LOCALHOST, bound_port));
-
-        let res = tokio::task::spawn_blocking(move || {
-            let creds_ref = auth.as_ref().map(|(u, p)| (u.as_str(), p.as_str()));
-            probe_socks_connectivity(socks_addr, creds_ref)
-        })
-        .await
-        .map_err(|e| format!("Task error: {e}"))?;
+        let creds_ref = auth.as_ref().map(|(u, p)| (u.as_str(), p.as_str()));
+        let res = crate::ip_checker::check_ip_via_socks(socks_addr, creds_ref).await;
 
         // Update status with test result
         let mut statuses = self.statuses.write().await;
@@ -975,84 +1008,6 @@ fn splice_connections(client: TcpStream, upstream: TcpStream) {
 
 // ── Connectivity & Speed Probers ─────────────────────────────────────────────
 
-fn probe_socks_connectivity(socks: SocketAddr, auth: Option<(&str, &str)>) -> ConnectivityResult {
-    let now_ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-    let started = Instant::now();
-
-    // 1. Connect through SOCKS5 to Cloudflare trace
-    let mut stream = match socks5_connect_with_auth(socks, "www.cloudflare.com", 80, PROBE_TIMEOUT, auth) {
-        Ok(s) => s,
-        Err(e) => {
-            return ConnectivityResult {
-                success: false,
-                ip: None,
-                country: None,
-                colo: None,
-                org: None,
-                latency_ms: None,
-                error: Some(format!("Handshake failed: {e}")),
-                checked_at: now_ts,
-            };
-        }
-    };
-
-    let _ = stream.set_read_timeout(Some(PROBE_TIMEOUT));
-    let req = "GET /cdn-cgi/trace HTTP/1.1\r\nHost: www.cloudflare.com\r\nUser-Agent: NextVPN-VPS/1.0\r\nConnection: close\r\n\r\n";
-    if let Err(e) = stream.write_all(req.as_bytes()) {
-        return ConnectivityResult {
-            success: false,
-            ip: None,
-            country: None,
-            colo: None,
-            org: None,
-            latency_ms: None,
-            error: Some(format!("Request write error: {e}")),
-            checked_at: now_ts,
-        };
-    }
-
-    let mut body = String::new();
-    if let Err(e) = stream.read_to_string(&mut body) {
-        return ConnectivityResult {
-            success: false,
-            ip: None,
-            country: None,
-            colo: None,
-            org: None,
-            latency_ms: None,
-            error: Some(format!("Read response error: {e}")),
-            checked_at: now_ts,
-        };
-    }
-
-    let rtt = started.elapsed().as_secs_f64() * 1000.0;
-
-    let mut ip = None;
-    let mut country = None;
-    let mut colo = None;
-
-    for line in body.lines() {
-        if let Some((k, v)) = line.split_once('=') {
-            match k {
-                "ip" => ip = Some(v.trim().to_string()),
-                "loc" => country = Some(v.trim().to_uppercase()),
-                "colo" => colo = Some(v.trim().to_uppercase()),
-                _ => {}
-            }
-        }
-    }
-
-    ConnectivityResult {
-        success: ip.is_some(),
-        ip,
-        country,
-        colo,
-        org: Some("Cloudflare Edge Network".to_string()),
-        latency_ms: Some((rtt * 10.0).round() / 10.0),
-        error: None,
-        checked_at: now_ts,
-    }
-}
 
 fn probe_socks_speed(socks: SocketAddr, auth: Option<(&str, &str)>) -> SpeedResult {
     let now_ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();

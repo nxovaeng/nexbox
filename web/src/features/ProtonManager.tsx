@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   Key, RefreshCw, Play, Square, Settings, Server, Globe,
-  CheckCircle2, AlertCircle, Clock, Zap, Smartphone, Check, Loader2
+  CheckCircle2, AlertCircle, Clock, Zap, Smartphone, Check, Loader2,
+  Network
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -92,7 +93,7 @@ export function ProtonManager() {
     setError(null);
     try {
       const res = await loginProtonGuest();
-      showSuccess(`Guest 访客登录成功！已自动申请 7 天证书 (UID: ${res.uid?.slice(0, 10)}...)`);
+      showSuccess(`Guest 访客登录成功！已自动申请证书 (UID: ${res.uid?.slice(0, 10)}...)`);
       await fetchInfo();
     } catch (e: any) {
       setError(e.message || "Guest 登录失败");
@@ -106,7 +107,7 @@ export function ProtonManager() {
     setError(null);
     try {
       await renewProtonCert();
-      showSuccess("7 天长效证书 (Duration: 10080 min) 重新签发成功！");
+      showSuccess("证书重新签发成功！");
       await fetchInfo();
     } catch (e: any) {
       setError(e.message || "证书申请失败");
@@ -457,12 +458,12 @@ export function ProtonManager() {
               {(info?.countries && info.countries.length > 0
                 ? info.countries
                 : [
-                    { code: "US", count: 0, lowestLoad: 20 },
-                    { code: "NL", count: 0, lowestLoad: 15 },
-                    { code: "JP", count: 0, lowestLoad: 25 },
-                    { code: "RO", count: 0, lowestLoad: 18 },
-                    { code: "PL", count: 0, lowestLoad: 30 },
-                  ]
+                  { code: "US", count: 0, lowestLoad: 20 },
+                  { code: "NL", count: 0, lowestLoad: 15 },
+                  { code: "JP", count: 0, lowestLoad: 25 },
+                  { code: "RO", count: 0, lowestLoad: 18 },
+                  { code: "PL", count: 0, lowestLoad: 30 },
+                ]
               ).map((c) => {
                 const cc = c.code;
                 const count = c.count;
@@ -473,11 +474,10 @@ export function ProtonManager() {
                     key={cc}
                     type="button"
                     onClick={() => handleSelectCountry(cc)}
-                    className={`p-2 rounded-md border text-left transition-all ${
-                      isSelected
-                        ? "border-primary bg-primary/10 text-primary shadow-sm"
-                        : "border-border/50 hover:bg-muted/40 text-muted-foreground"
-                    }`}
+                    className={`p-2 rounded-md border text-left transition-all ${isSelected
+                      ? "border-primary bg-primary/10 text-primary shadow-sm"
+                      : "border-border/50 hover:bg-muted/40 text-muted-foreground"
+                      }`}
                   >
                     <div className="text-xs font-semibold flex items-center justify-between">
                       <span>{cc}</span>
@@ -591,44 +591,48 @@ export function ProtonManager() {
           {/* 监听地址与端口 */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-medium">监听地址 (Listen Address)</label>
-                <div className="flex items-center gap-1 text-[11px]">
-                  <button
-                    type="button"
-                    onClick={() => setListenAddress("127.0.0.1")}
-                    className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${
-                      listenAddress === "127.0.0.1"
-                        ? "bg-primary text-primary-foreground font-semibold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    127.0.0.1 (本机)
-                  </button>
-                  <span className="text-border">|</span>
-                  <button
-                    type="button"
-                    onClick={() => setListenAddress("0.0.0.0")}
-                    className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${
-                      listenAddress === "0.0.0.0"
-                        ? "bg-primary text-primary-foreground font-semibold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    0.0.0.0 (局域网)
-                  </button>
-                </div>
-              </div>
+              <label className="text-xs font-medium flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Network className="size-3.5 text-muted-foreground" />
+                  本地监听地址 (Host)
+                </span>
+              </label>
               <Input
                 value={listenAddress}
                 onChange={(e) => setListenAddress(e.target.value)}
                 placeholder="127.0.0.1"
                 className="font-mono text-xs h-8"
               />
+              <div className="flex items-center gap-1 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setListenAddress("127.0.0.1")}
+                  className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${listenAddress === "127.0.0.1"
+                    ? "bg-primary text-primary-foreground font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                    }`}
+                >
+                  127.0.0.1 (本机)
+                </button>
+                <span className="text-border">|</span>
+                <button
+                  type="button"
+                  onClick={() => setListenAddress("0.0.0.0")}
+                  className={`px-1.5 py-0.5 rounded text-[10px] transition-colors ${listenAddress === "0.0.0.0"
+                    ? "bg-primary text-primary-foreground font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                    }`}
+                >
+                  0.0.0.0 (局域网)
+                </button>
+              </div>
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium">监听端口 (Listen Port)</label>
+              <label className="text-xs font-medium flex items-center gap-1.5">
+                <Settings className="size-3.5 text-muted-foreground" />
+                固定 SOCKS5 监听端口 (Port)
+              </label>
               <Input
                 type="number"
                 value={listenPort}
@@ -636,6 +640,9 @@ export function ProtonManager() {
                 placeholder="10810"
                 className="font-mono text-xs h-8"
               />
+              <p className="text-[11px] text-muted-foreground">
+                独立运行时的固定监听端口（默认 10810）。
+              </p>
             </div>
           </div>
 

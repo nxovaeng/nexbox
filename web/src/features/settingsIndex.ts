@@ -7,12 +7,14 @@
  * not know the setting is called "Resolvers".
  */
 export type SectionId =
-  | "status"
-  | "routes"
-  | "endpoint"
-  | "chain"
+  | "aether"
+  | "proton"
+  | "windscribe"
+  | "psiphon"
   | "traffic"
   | "identity"
+  | "core"
+  | "logs"
   | "diagnostics"
   | "licences";
 
@@ -26,66 +28,37 @@ export interface SettingEntry {
 }
 
 export const SECTION_LABELS: Record<SectionId, string> = {
-  status: "Status",
-  routes: "Routes & transports",
-  endpoint: "Endpoint",
-  chain: "Exit chain",
+  aether: "Aether (WARP) 方案管理",
+  proton: "Proton 配置管理",
+  windscribe: "Windscribe 节点",
+  psiphon: "Psiphon 配置管理",
   traffic: "Traffic & DNS",
-  identity: "Identity",
-  diagnostics: "Diagnostics",
+  identity: "Cloudflare Identity",
+  core: "Core Management",
+  logs: "实时运行日志",
+  diagnostics: "Diagnostics & Logs",
   licences: "Licences & notices",
 };
 
 export const SETTINGS: SettingEntry[] = [
-  { label: "Live event log", section: "status", where: "Status", keywords: "log console output events stderr debug what is happening" },
-  { label: "What will run", section: "status", where: "Status", keywords: "command line arguments flags cli invocation" },
-  { label: "Round-trip chart", section: "status", where: "Status", keywords: "latency ping ms speed graph chart rtt" },
-  { label: "Speed test", section: "status", where: "Status", keywords: "throughput download mbps bandwidth how fast" },
+  { label: "Aether 参数方案", section: "aether", where: "Aether (WARP) 方案管理", keywords: "warp aether profile scheme direct stealth noize fragment h2 h3" },
+  { label: "海外 VPS 极速直连预设", section: "aether", where: "Aether (WARP) 方案管理", keywords: "overseas direct turbo h3 quic fast low latency" },
+  { label: "受管控抗封锁 H2 预设", section: "aether", where: "Aether (WARP) 方案管理", keywords: "stealth h2 fragment firewall obfuscation" },
+  { label: "TLS ClientHello 分片", section: "aether", where: "Aether (WARP) 方案管理", keywords: "fragment client hello dpi censorship filtering bypass" },
+  { label: "Noize 混流伪装", section: "aether", where: "Aether (WARP) 方案管理", keywords: "noize noise padding gfw firewall aggressive hide traffic fingerprint" },
+  { label: "Aether 端点选择与优选", section: "aether", where: "Aether (WARP) 方案管理", keywords: "scan gateways find ip addresses test candidates rank peer endpoint" },
+  { label: "WireGuard 原生直连", section: "aether", where: "Aether (WARP) 方案管理", keywords: "wireguard wg udp native handshake" },
 
-  { label: "Protocol", section: "routes", where: "Routes & transports", keywords: "masque h2 h3 wireguard wg warp in warp gool tcp quic udp transport" },
-  { label: "Search depth", section: "routes", where: "Routes & transports", keywords: "scan mode turbo balanced thorough stealth ironclad how hard to look" },
-  { label: "Addresses", section: "routes", where: "Routes & transports", keywords: "ipv4 ipv6 dual stack ip family v4 v6" },
-  { label: "Reuse the last working edge", section: "routes", where: "Routes & transports", keywords: "quick reconnect cached gateway faster connect" },
-  { label: "End-to-end data check", section: "routes", where: "Routes & transports", keywords: "verify tunnel really works data check validation" },
-  { label: "Resource profile", section: "routes", where: "Routes & transports", keywords: "performance cpu concurrency low medium high auto" },
-  { label: "Timeouts", section: "routes", where: "Routes & transports", keywords: "validation deadline startup deadline reconnect delay seconds timeout" },
-  { label: "Split the TLS opening", section: "routes", where: "Routes & transports", keywords: "fragment client hello dpi censorship filtering bypass" },
-  { label: "Obfuscation profile", section: "routes", where: "Routes & transports", keywords: "noize noise padding gfw firewall aggressive hide traffic fingerprint" },
-  { label: "Encrypted Client Hello", section: "routes", where: "Routes & transports", keywords: "ech sni hostname hiding" },
-  { label: "TLS groups", section: "routes", where: "Routes & transports", keywords: "key exchange curves x25519 tls" },
-  { label: "WireGuard keepalive", section: "routes", where: "Routes & transports", keywords: "keepalive udp mapping nat" },
+  { label: "Proton 节点管理", section: "proton", where: "Proton 配置管理", keywords: "proton wireproxy cert account guest login free servers" },
+  { label: "Windscribe 节点", section: "windscribe", where: "Windscribe 节点", keywords: "windscribe https credentials proxy nodes" },
+  { label: "Psiphon 节点", section: "psiphon", where: "Psiphon 配置管理", keywords: "psiphon egress region server list" },
 
-  { label: "Endpoint scanner", section: "endpoint", where: "Endpoint", keywords: "scan gateways find ip addresses test candidates rank" },
-  { label: "Pinned endpoint", section: "endpoint", where: "Endpoint", keywords: "custom peer address force specific gateway ip port" },
-  { label: "How the gateway is chosen", section: "endpoint", where: "Endpoint", keywords: "automatic custom first custom only endpoint mode" },
-  { label: "Per-protocol overrides", section: "endpoint", where: "Endpoint", keywords: "h2 peer wireguard peer separate address" },
-
-  { label: "Dial through a local proxy", section: "routes", where: "Routes & transports", keywords: "upstream proxy socks5 http chain behind another vpn local proxy" },
-  { label: "Match domain rules on sniffed names", section: "routes", where: "Routes & transports", keywords: "sniff sni host header domain rules match bare address route" },
-  { label: "Register again if the identity is refused", section: "routes", where: "Routes & transports", keywords: "reprovision identity refused device cloudflare account handshake nothing passes" },
-
-  { label: "Route through a second hop", section: "chain", where: "Exit chain", keywords: "chain proxy exit country change ip location second hop mihomo geo" },
-  { label: "Subscriptions", section: "chain", where: "Exit chain", keywords: "sub subscription link config nodes servers add" },
-  { label: "Configs pasted by hand", section: "chain", where: "Exit chain", keywords: "vless vmess trojan shadowsocks ss hysteria tuic paste uri manual config" },
-  { label: "Nodes", section: "chain", where: "Exit chain", keywords: "node ping delay speed test which server pick select" },
-
-  { label: "Set the system proxy while connected", section: "traffic", where: "Traffic & DNS", keywords: "whole machine system proxy windows wininet browser all apps" },
-  { label: "Block traffic if the tunnel drops", section: "traffic", where: "Traffic & DNS", keywords: "kill switch killswitch fail closed leak protection block traffic drop" },
-  { label: "Keep me connected", section: "traffic", where: "Traffic & DNS", keywords: "auto reconnect retry keep alive stay connected reconnection" },
-  { label: "Share this connection on my network", section: "traffic", where: "Traffic & DNS", keywords: "lan share network other devices phone tv wifi hotspot proxy for phone username password" },
-  { label: "Local proxy address", section: "traffic", where: "Traffic & DNS", keywords: "socks5 socks port 1819 bind listener point apps at" },
-  { label: "Routing rules (路由规则)", section: "routes", where: "Routes", keywords: "routing rules direct block bypass allow split domain cidr ip port private 路由 规则 直连 阻止 分流" },
-
-  { label: "Cloudflare Zero Trust", section: "identity", where: "Identity", keywords: "team access client id secret token enrolment organisation login" },
-  { label: "Send web traffic to Gateway", section: "identity", where: "Identity", keywords: "gateway policy filtering organisation" },
-
-  { label: "Core executable", section: "diagnostics", where: "Diagnostics", keywords: "aether path binary engine location" },
-  { label: "Log detail", section: "diagnostics", where: "Diagnostics", keywords: "log level verbose trace debug info warn error" },
-  { label: "Profile name", section: "diagnostics", where: "Diagnostics", keywords: "name profile label" },
-  { label: "Build a report", section: "diagnostics", where: "Diagnostics", keywords: "diagnostics report share support bug redact save copy" },
-
-  { label: "Licences & notices", section: "licences", where: "Licences & notices", keywords: "licence license gpl agpl open source copyright legal notice attribution third party mihomo aether" },
-  { label: "Where the source lives", section: "licences", where: "Licences & notices", keywords: "source code repository github corresponding source obligation download" },
+  { label: "Traffic & DNS", section: "traffic", where: "Traffic & DNS", keywords: "dns resolvers socks5 1819 routing rules" },
+  { label: "Cloudflare Zero Trust", section: "identity", where: "Cloudflare Identity", keywords: "team access client id secret token enrolment organisation login" },
+  { label: "Core 内核程序", section: "core", where: "Core Management", keywords: "core binary download upload inventory aether wireproxy psiphon" },
+  { label: "实时内核日志", section: "logs", where: "实时运行日志", keywords: "live logs realtime stdout stderr events streaming monitor console" },
+  { label: "运行日志与诊断", section: "diagnostics", where: "Diagnostics & Logs", keywords: "log detail level report debug verbose" },
+  { label: "Licences & notices", section: "licences", where: "Licences & notices", keywords: "licence license gpl agpl open source" },
 ];
 
 /**

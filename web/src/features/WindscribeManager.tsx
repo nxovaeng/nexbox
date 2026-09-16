@@ -89,7 +89,7 @@ export function WindscribeManager() {
           setUpstreamProxy(res.settings.upstreamProxy);
           try {
             localStorage.setItem("windscribe_upstream_proxy", res.settings.upstreamProxy);
-          } catch {}
+          } catch { }
         }
         if (res.settings.country) setSelectedCountry(res.settings.country);
         if (res.settings.serverTag) setSelectedServerTag(res.settings.serverTag);
@@ -305,28 +305,6 @@ export function WindscribeManager() {
                 Windscribe 官方纯净 HTTPS 代理节点，经由本地轻量级 SOCKS5 转发器输出。
               </CardDescription>
             </div>
-
-            <div className="flex items-center gap-3">
-              <Button
-                variant={isRunning ? "destructive" : "default"}
-                size="sm"
-                onClick={handleToggleStart}
-                disabled={actionLoading || !account}
-                className="gap-2 shadow-sm"
-              >
-                {actionLoading ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : isRunning ? (
-                  <>
-                    <Square className="w-4 h-4" /> 停止转发
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-4 h-4" /> 启动独立节点
-                  </>
-                )}
-              </Button>
-            </div>
           </div>
         </CardHeader>
 
@@ -437,9 +415,8 @@ export function WindscribeManager() {
                         </div>
                         <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
                           <div
-                            className={`h-full transition-all duration-300 ${
-                              quota.percent > 85 ? "bg-amber-500" : "bg-indigo-500"
-                            }`}
+                            className={`h-full transition-all duration-300 ${quota.percent > 85 ? "bg-amber-500" : "bg-indigo-500"
+                              }`}
                             style={{ width: `${quota.percent}%` }}
                           />
                         </div>
@@ -482,22 +459,20 @@ export function WindscribeManager() {
                     <button
                       type="button"
                       onClick={() => setAuthTab("login")}
-                      className={`pb-2 px-4 text-sm font-medium border-b-2 transition-colors ${
-                        authTab === "login"
-                          ? "border-indigo-500 text-foreground"
-                          : "border-transparent text-muted-foreground hover:text-foreground"
-                      }`}
+                      className={`pb-2 px-4 text-sm font-medium border-b-2 transition-colors ${authTab === "login"
+                        ? "border-indigo-500 text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                        }`}
                     >
                       登录已有账号
                     </button>
                     <button
                       type="button"
                       onClick={() => setAuthTab("register")}
-                      className={`pb-2 px-4 text-sm font-medium border-b-2 transition-colors ${
-                        authTab === "register"
-                          ? "border-indigo-500 text-foreground"
-                          : "border-transparent text-muted-foreground hover:text-foreground"
-                      }`}
+                      className={`pb-2 px-4 text-sm font-medium border-b-2 transition-colors ${authTab === "register"
+                        ? "border-indigo-500 text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                        }`}
                     >
                       快速开通新账号
                     </button>
@@ -692,17 +667,38 @@ export function WindscribeManager() {
                 </p>
               </div>
 
-              <div className="pt-2 flex justify-end">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={handleSaveConfig}
                   disabled={savingConfig}
-                  className="gap-2"
+                  className="h-8 text-xs flex-1 sm:flex-initial gap-1.5"
                 >
                   <Save className="w-4 h-4" />
                   保存设置
                 </Button>
+
+                <Button
+                  variant={isRunning ? "destructive" : "default"}
+                  size="sm"
+                  onClick={handleToggleStart}
+                  disabled={actionLoading || !account}
+                  className="gap-2 shadow-sm"
+                >
+                  {actionLoading ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : isRunning ? (
+                    <>
+                      <Square className="w-4 h-4" /> 停止转发
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4" /> 启动独立节点
+                    </>
+                  )}
+                </Button>
+
               </div>
             </CardContent>
           </Card>

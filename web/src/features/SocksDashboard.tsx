@@ -24,8 +24,19 @@ import {
   stopSocksInstance,
   testSocksConnectivity,
   testSocksSpeed,
+  getAetherProfiles,
+  type AetherProfileConfig,
   type SocksInstanceView,
 } from "@/core/api";
+
+const CURL_TARGETS = [
+  { label: "IPWho.is (高可用/详细)", url: "https://ipwho.is" },
+  { label: "IP.SB (纯净 GeoIP)", url: "https://api.ip.sb/geoip" },
+  { label: "ifconfig.co (简洁 JSON)", url: "https://ifconfig.co/json" },
+  { label: "ipapi.co (高精度)", url: "https://ipapi.co/json/" },
+  { label: "Cloudflare (Trace)", url: "https://cloudflare.com/cdn-cgi/trace" },
+  { label: "ipinfo.io (原站点/易429)", url: "https://ipinfo.io" },
+];
 
 interface SocksDashboardProps {
   onManageClick: () => void;
@@ -35,17 +46,25 @@ interface SocksDashboardProps {
 export function SocksDashboard({ onManageClick, onToast }: SocksDashboardProps) {
   const [instances, setInstances] = useState<SocksInstanceView[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [aetherProfiles, setAetherProfiles] = useState<AetherProfileConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [testingConn, setTestingConn] = useState<Record<string, boolean>>({});
   const [testingSpeed, setTestingSpeed] = useState<Record<string, boolean>>({});
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [curlTarget, setCurlTarget] = useState<string>("https://ipwho.is");
 
   // Fetch instances list
   const refresh = useCallback(async () => {
     try {
-      const list = await listSocksInstances();
+      const [list, plist] = await Promise.all([
+        listSocksInstances(),
+        getAetherProfiles().catch(() => []),
+      ]);
       setInstances(list);
+      if (plist && plist.length > 0) {
+        setAetherProfiles(plist);
+      }
       if (list.length > 0 && !selectedId) {
         // Select first running or first instance
         const running = list.find((i) => i.status.isRunning);
@@ -193,8 +212,8 @@ export function SocksDashboard({ onManageClick, onToast }: SocksDashboardProps) 
               {selected?.status.lastConnectivity?.latencyMs
                 ? `${selected.status.lastConnectivity.latencyMs} ms`
                 : selected?.status.isRunning
-                ? "就绪待测"
-                : "--"}
+                  ? "就绪待测"
+                  : "--"}
             </div>
             <p className="mt-1 text-[11.5px] text-muted-foreground">
               {selected?.status.lastConnectivity?.ip
@@ -283,6 +302,14 @@ export function SocksDashboard({ onManageClick, onToast }: SocksDashboardProps) 
                   </span>
                   <span className="rounded bg-accent/60 px-1.5 py-0.5 text-[10.5px] text-muted-foreground uppercase font-medium">
                     {inst.upstreamType}
+                    {inst.upstreamType === "warp"
+                      ? ` (${(() => {
+                        const p = aetherProfiles.find((x) => x.id === inst.upstreamConfig?.profileId);
+                        return p ? p.name : inst.upstreamConfig?.profileId || "默认";
+                      })()})`
+                      : inst.upstreamConfig?.country
+                        ? ` (${inst.upstreamConfig.country})`
+                        : ""}
                   </span>
                   {hasAuth ? (
                     <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10.5px] font-medium text-amber-500">
@@ -352,7 +379,17 @@ export function SocksDashboard({ onManageClick, onToast }: SocksDashboardProps) 
                     </div>
                     <CardDescription className="text-xs text-muted-foreground">
                       监听: <code>{selected.listenHost}:{selected.listenPort}</code> &middot; 上游出口:{" "}
-                      <span className="font-semibold text-foreground capitalize">{selected.upstreamType}</span>
+                      <span className="font-semibold text-foreground capitalize">
+                        {selected.upstreamType}
+                        {selected.upstreamType === "warp" && (
+                          <span className="font-normal text-muted-foreground">
+                            {" "}· 方案: {(() => {
+                              const p = aetherProfiles.find((x) => x.id === selected.upstreamConfig?.profileId);
+                              return p ? p.name : selected.upstreamConfig?.profileId || "默认方案";
+                            })()}
+                          </span>
+                        )}
+                      </span>
                     </CardDescription>
                   </div>
                 </div>
@@ -446,6 +483,16 @@ export function SocksDashboard({ onManageClick, onToast }: SocksDashboardProps) 
                         </span>
                       </div>
 
+                      {selected.status.lastConnectivity.provider && (
+                        <div className="flex justify-between py-1 border-b border-border/30">
+                          <span className="text-muted-foreground">探测服务提供源:</span>
+                          <span className="font-medium text-primary flex items-center gap-1">
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            {selected.status.lastConnectivity.provider}
+                          </span>
+                        </div>
+                      )}
+
                       <div className="flex justify-between py-1 border-b border-border/30">
                         <span className="text-muted-foreground">真实握手延迟 RTT:</span>
                         <span
@@ -454,8 +501,8 @@ export function SocksDashboard({ onManageClick, onToast }: SocksDashboardProps) 
                             (selected.status.lastConnectivity.latencyMs ?? 999) < 100
                               ? "text-emerald-500"
                               : (selected.status.lastConnectivity.latencyMs ?? 999) < 250
-                              ? "text-amber-500"
-                              : "text-red-500",
+                                ? "text-amber-500"
+                                : "text-red-500",
                           ].join(" ")}
                         >
                           {selected.status.lastConnectivity.latencyMs
@@ -607,25 +654,43 @@ export function SocksDashboard({ onManageClick, onToast }: SocksDashboardProps) 
                     </div>
 
                     <div>
-                      <div className="flex items-center justify-between text-[11.5px] mb-1">
+                      <div className="flex flex-wrap items-center justify-between gap-1 text-[11.5px] mb-1.5">
                         <span className="font-medium text-muted-foreground">cURL 代理测试命令:</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const creds = selected.username && selected.password ? `${selected.username}:${selected.password}@` : "";
-                            copyToClipboard(`curl -x socks5h://${creds}${vpsHost}:${selected.listenPort} https://ipinfo.io`, "curl-cmd");
-                          }}
-                          className="text-primary hover:underline flex items-center gap-1"
-                        >
-                          {copiedKey === "curl-cmd" ? <Check className="size-3" /> : <Copy className="size-3" />}
-                          复制
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={curlTarget}
+                            onChange={(e) => setCurlTarget(e.target.value)}
+                            className="bg-muted text-foreground border border-border/60 rounded px-1.5 py-0.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-primary"
+                          >
+                            {CURL_TARGETS.map((t) => (
+                              <option key={t.url} value={t.url}>
+                                {t.label}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const creds = selected.username && selected.password ? `${selected.username}:${selected.password}@` : "";
+                              copyToClipboard(`curl -x socks5h://${creds}${vpsHost}:${selected.listenPort} ${curlTarget}`, "curl-cmd");
+                            }}
+                            className="text-primary hover:underline flex items-center gap-1"
+                          >
+                            {copiedKey === "curl-cmd" ? <Check className="size-3" /> : <Copy className="size-3" />}
+                            复制
+                          </button>
+                        </div>
                       </div>
                       <div className="rounded bg-muted/60 p-2 font-mono text-[11.5px] break-all text-foreground select-all">
                         curl -x socks5h://
                         {selected.username && selected.password ? `${selected.username}:${selected.password}@` : ""}
-                        {vpsHost}:{selected.listenPort} https://ipinfo.io
+                        {vpsHost}:{selected.listenPort} {curlTarget}
                       </div>
+                      {curlTarget.includes("ipinfo.io") && (
+                        <p className="text-[10.5px] text-amber-500/90 mt-1 leading-normal">
+                          提示: ipinfo.io 免费查询接口极易触发 HTTP 429 频繁限制，建议选用 IPWho.is 或 IP.SB。
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -638,14 +703,17 @@ export function SocksDashboard({ onManageClick, onToast }: SocksDashboardProps) 
   );
 }
 
-function getCountryHint(inst: SocksInstanceView): string {
+function getCountryHint(inst: SocksInstanceView, aetherProfiles?: AetherProfileConfig[]): string {
   if (inst.upstreamConfig?.country) {
     return inst.upstreamConfig.country.toUpperCase();
   }
   if (inst.upstreamConfig?.region) {
     return inst.upstreamConfig.region.toUpperCase();
   }
-  if (inst.upstreamType === "warp") return "Cloudflare Anycast";
+  if (inst.upstreamType === "warp") {
+    const p = aetherProfiles?.find((x) => x.id === inst.upstreamConfig?.profileId);
+    return `Warp (${p ? p.name : "默认方案"})`;
+  }
   return "自动出口";
 }
 
